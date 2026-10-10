@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>筋トレ記録</title>
+  <meta name="description" content="種目を部位タブから選んで重量・回数を記録し、部位ごとの負荷を評価する筋トレ記録アプリ">
+  <meta name="theme-color" content="#1f6feb">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="date-nav">
+      <button class="icon-btn" id="prevDay" aria-label="前の日">‹</button>
+      <label class="date-label">
+        <span id="dateText"></span>
+        <input type="date" id="dateInput" aria-label="日付を選択">
+      </label>
+      <button class="icon-btn" id="nextDay" aria-label="次の日">›</button>
+      <button class="today-btn" id="todayBtn">今日</button>
+      <button class="sync-chip" id="syncChip" hidden aria-label="クラウド同期の状態"></button>
+    </div>
+  </header>
+
+  <main id="main" class="main">
+    <p class="loading">種目マスタを読み込み中…</p>
+  </main>
+
+  <nav class="bottom-nav" aria-label="画面切替">
+    <button data-view="record" class="active"><span class="nav-icon">✎</span>記録</button>
+    <button data-view="eval"><span class="nav-icon">◔</span>評価</button>
+    <button data-view="trend"><span class="nav-icon">▥</span>推移</button>
+    <button data-view="history"><span class="nav-icon">☰</span>履歴</button>
+    <button data-view="settings"><span class="nav-icon">⚙</span>設定</button>
+  </nav>
+
+  <!-- 種目選択シート -->
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+  <section class="sheet" id="pickerSheet" hidden aria-label="種目を選択">
+    <div class="sheet-head">
+      <h2>種目を追加</h2>
+      <button class="icon-btn" id="closeSheet" aria-label="閉じる">✕</button>
+    </div>
+    <div class="part-tabs" id="partTabs" role="tablist"></div>
+    <div class="picker-filters">
+      <input type="search" id="pickerSearch" placeholder="種目名で検索（全部位から）">
+      <div class="chips" id="typeChips"></div>
+    </div>
+    <ul class="picker-list" id="pickerList"></ul>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/calc.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
