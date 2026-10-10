@@ -394,3 +394,4 @@ body.rest-on { padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
 .field input[type="checkbox"] { width: 20px; height: 20px; }
 .rest-row .rest-stop { min-width: 72px; color: var(--text); }
 .rest-bar.done .rest-stop { background: var(--accent-ink); color: var(--accent); border-color: transparent; }
+.body-note { color: var(--accent); }

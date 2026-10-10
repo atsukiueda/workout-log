@@ -142,6 +142,15 @@ function render() {
 
 // ---------- 記録画面 ----------
 const typeBadge = t => `<span class="badge type-${esc(t)}">${esc(t)}</span>`;
+// 体重を負荷に含める種目の説明（例: 「負荷 = 体重×88% ＋ 重量」）
+function bodyLoadNote(ex) {
+  const pct = Math.round(Calc.bodyFactor(ex) * 100);
+  return {
+    loaded: `負荷 = 体重×${pct}% ＋ 重量`,
+    bodyweight: `負荷 = 体重×${pct}% ＋ 追加重量`,
+    assist: `負荷 = 体重×${pct}% − アシスト`,
+  }[Calc.loadKind(ex)] || '';
+}
 function unitLabels(ex) {
   const kind = Calc.loadKind(ex);
   return {
@@ -153,7 +162,12 @@ function unitLabels(ex) {
 const setText = (ex, s) => {
   const u = unitLabels(ex);
   const w = Number(s.w) || 0;
-  const wt = u.hideWeight ? '' : (Calc.loadKind(ex) === 'bodyweight' ? (w ? `自重+${fmtNum(w)}kg` : '自重') : `${fmtNum(w)}${u.w}`);
+  const kind = Calc.loadKind(ex);
+  const wt = u.hideWeight ? ''
+    : kind === 'bodyweight' ? (w ? `自重+${fmtNum(w)}kg` : '自重')
+    : kind === 'loaded' && !w ? '自重'
+    : kind === 'assist' ? `アシスト${fmtNum(w)}kg`
+    : `${fmtNum(w)}${u.w}`;
   return `${wt}${wt ? '×' : ''}${s.r}${u.r}`;
 };
 
@@ -189,6 +203,7 @@ function renderEntry(entry) {
       <div>
         <h3>${esc(ex.name)}</h3>
         <div class="meta">${typeBadge(ex.type)} 主対象: ${esc(prim.join('・') || '—')} ・ 目安 ${esc(ex.setsGuide)}セット×${esc(ex.repsGuide)}${ex.timed ? '' : '回'}</div>
+        ${bodyLoadNote(ex) ? `<div class="meta body-note">${esc(bodyLoadNote(ex))}（体重 ${fmtNum(bodyWeight())}kg）</div>` : ''}
       </div>
       <button class="text-btn danger" data-act="del-entry">削除</button>
     </div>
@@ -714,7 +729,7 @@ function methodHtml() {
       <dt>推定1RM</dt>
       <dd>Epley式: 重量 × (1 + 回数 ÷ 30)。15回を超えるセットは誤差が大きいため対象外。</dd>
       <dt>自重・アシスト種目</dt>
-      <dd>自重種目は 体重 × 係数（腕立て伏せ0.64、懸垂1.0、ディップス0.95 など）＋追加重量、アシスト種目は 体重 − アシスト重量 を実効負荷とします。</dd>
+      <dd>体重 × 係数 ＋ 入力した重量 を負荷とします。係数は動作で実際に持ち上げる体の割合です（スクワット・ランジ0.88、カーフレイズ0.97、懸垂・ディップス0.95、腕立て伏せ0.69、インバーテッドロウ0.6 など）。アシスト種目は 体重×0.95 − アシスト重量。スクワットなど重りを持つ種目の推定1RMは、慣例どおり持った重量だけで計算します（ボリュームには体重分を含めます）。過去の日の計算にも、現在の体重設定を使います。</dd>
       <dt>注意</dt>
       <dd>マシンの表示重量はメーカーや機種でレバー比が異なるため、別機種・フリーウェイトとの重量比較は目安です。</dd>
     </dl>

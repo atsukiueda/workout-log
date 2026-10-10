@@ -40,22 +40,29 @@ const Calc = (() => {
     return out;
   }
 
+  // 'assist'（体重−アシスト）| 'bodyweight'（自重＋追加重量）| 'loaded'（重量＋体重分）| 'normal' | 'timed'
   function loadKind(ex) {
     if (ex.timed) return 'timed';
-    if (CONFIG.assisted.includes(ex.id)) return 'assist';
-    if (CONFIG.bodyweightFactor[ex.id] != null) return 'bodyweight';
+    if (CONFIG.assisted[ex.id] != null) return 'assist';
+    const bw = CONFIG.bodyweight[ex.id];
+    if (bw) return bw.external ? 'loaded' : 'bodyweight';
     return 'normal';
   }
+  const bodyFactor = ex => CONFIG.assisted[ex.id] ?? CONFIG.bodyweight[ex.id]?.factor ?? 0;
 
-  // 1セットの実効負荷(kg)
+  // 1セットの実効負荷(kg)。ボリュームの計算に使う
   function effectiveLoad(ex, set, bodyWeight) {
     const w = Number(set.w) || 0;
     switch (loadKind(ex)) {
-      case 'assist': return Math.max(0, bodyWeight - w);
-      case 'bodyweight': return bodyWeight * CONFIG.bodyweightFactor[ex.id] + w;
+      case 'assist': return Math.max(0, bodyWeight * bodyFactor(ex) - w);
+      case 'bodyweight':
+      case 'loaded': return bodyWeight * bodyFactor(ex) + w;
       default: return w;
     }
   }
+  // 推定1RM・ベストに使う重量。バーベル等を持つ種目は、慣例どおり持った重量だけで出す
+  const oneRmLoad = (ex, set, bodyWeight) =>
+    loadKind(ex) === 'loaded' ? (Number(set.w) || 0) : effectiveLoad(ex, set, bodyWeight);
 
   const isDone = set => Number(set.r) > 0;
 
@@ -71,8 +78,8 @@ const Calc = (() => {
     let volume = 0, best = null, bestE1rm = null;
     for (const s of sets) {
       const reps = Number(s.r);
-      const load = effectiveLoad(ex, s, bodyWeight);
-      if (!ex.timed) volume += load * reps;
+      if (!ex.timed) volume += effectiveLoad(ex, s, bodyWeight) * reps;
+      const load = oneRmLoad(ex, s, bodyWeight);
       const est = ex.timed ? null : e1rm(load, reps);
       if (est != null && (bestE1rm == null || est > bestE1rm)) { bestE1rm = est; best = { load, reps }; }
     }
@@ -141,5 +148,5 @@ const Calc = (() => {
       });
   }
 
-  return { goalGroups, parseToken, stripFactor, weeklyTarget, splitNames, expand, targets, loadKind, effectiveLoad, e1rm, entryStats, muscleLoad, rate, repZone, isDone };
+  return { bodyFactor, goalGroups, parseToken, stripFactor, weeklyTarget, splitNames, expand, targets, loadKind, effectiveLoad, e1rm, entryStats, muscleLoad, rate, repZone, isDone };
 })();
