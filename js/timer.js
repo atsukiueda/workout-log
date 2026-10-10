@@ -9,7 +9,7 @@ const RestTimer = (() => {
   let st = load();           // { end: ms, total: 秒, label } | null
   let alerted = st ? Date.now() >= st.end : false;
   let tick = null, wake = null, audio = null;
-  let opts = { sound: () => true };
+  let opts = { sound: () => true, ignoreSilent: () => false };
 
   function load() {
     try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; }
@@ -21,27 +21,42 @@ const RestTimer = (() => {
   const remaining = () => (st ? (st.end - Date.now()) / 1000 : 0);
   const fmt = sec => { const s = Math.max(0, Math.round(sec)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
-  // ---- 音（iOS は操作の中で AudioContext を作る必要があるため、最初のタップで準備する）
+  // ---- 音
+  //   iPhone の Safari は「タップが完了した操作」（touchend / click）の中でしか音声を有効にできない。
+  //   アプリを裏に回すと音声が止まる（interrupted）ことがあるため、タップのたびに止まっていれば再開する。
   function unlockAudio() {
-    if (audio) return;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
-    audio = new AC();
-    const b = audio.createBuffer(1, 1, 22050), s = audio.createBufferSource();
-    s.buffer = b; s.connect(audio.destination); s.start(0);
+    if (!audio) {
+      audio = new AC();
+      const b = audio.createBuffer(1, 1, 22050), s = audio.createBufferSource();
+      s.buffer = b; s.connect(audio.destination); s.start(0);
+    }
+    if (audio.state !== 'running') audio.resume?.().catch(() => {});
   }
-  function beep() {
-    if (!audio || !opts.sound()) return;
-    audio.resume?.();
+  // 消音モードでも鳴らす（Safari の Audio Session API）。鳴らす間だけ playback にして、終わったら戻す
+  function setSessionForBeep(on) {
+    if (!navigator.audioSession || !opts.ignoreSilent()) return;
+    try { navigator.audioSession.type = on ? 'playback' : 'auto'; } catch { /* 未対応 */ }
+  }
+  function playTones() {
+    const t0 = audio.currentTime + 0.05;
     [0, 0.25, 0.5].forEach((t, i) => {
       const o = audio.createOscillator(), g = audio.createGain();
       o.frequency.value = i === 2 ? 1320 : 880;
-      g.gain.setValueAtTime(0.0001, audio.currentTime + t);
-      g.gain.exponentialRampToValueAtTime(0.4, audio.currentTime + t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + t + 0.18);
+      g.gain.setValueAtTime(0.0001, t0 + t);
+      g.gain.exponentialRampToValueAtTime(0.6, t0 + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + t + 0.2);
       o.connect(g); g.connect(audio.destination);
-      o.start(audio.currentTime + t); o.stop(audio.currentTime + t + 0.2);
+      o.start(t0 + t); o.stop(t0 + t + 0.22);
     });
+    setTimeout(() => setSessionForBeep(false), 1200);
+  }
+  function beep(force = false) {
+    if (!audio || (!force && !opts.sound())) return;
+    setSessionForBeep(true);
+    if (audio.state === 'running') playTones();
+    else audio.resume?.().then(playTones).catch(() => {});
   }
   function notify() {
     beep();
@@ -104,7 +119,7 @@ const RestTimer = (() => {
 
   function init(o = {}) {
     opts = { ...opts, ...o };
-    document.addEventListener('pointerdown', unlockAudio, { once: true, capture: true });
+    for (const type of ['touchend', 'click', 'keydown']) document.addEventListener(type, unlockAudio, { capture: true, passive: true });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible' || !st) return;
       keepAwake();
@@ -121,5 +136,33 @@ const RestTimer = (() => {
     loop();
   }
 
-  return { init, start, adjust, stop, fmt, get running() { return Boolean(st); } };
+  // 設定画面の「音を試す」。タップ操作の中で呼ぶ
+  function testSound() {
+    unlockAudio();
+    beep(true);
+    navigator.vibrate?.([200, 100, 200]);
+  }
+
+  // ---- 端末ごとの設定（クラウド同期しない）
+  //   timer: 'auto'（スマホ・タブレットのみ）| 'on' | 'off'、ignoreSilent: 消音モードでも鳴らす
+  const DEVICE_KEY = 'workout-log.device.v1';
+  function device() {
+    try { return { timer: 'auto', ignoreSilent: false, ...JSON.parse(localStorage.getItem(DEVICE_KEY)) }; }
+    catch { return { timer: 'auto', ignoreSilent: false }; }
+  }
+  function setDevice(patch) {
+    try { localStorage.setItem(DEVICE_KEY, JSON.stringify({ ...device(), ...patch })); } catch { /* 保存できなければ既定値のまま */ }
+    if (!enabled()) stop();
+  }
+  const isTouchDevice = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  function enabled() {
+    const m = device().timer;
+    return m === 'on' || (m === 'auto' && isTouchDevice());
+  }
+
+  return {
+    init, start, adjust, stop, fmt, testSound, device, setDevice, enabled, isTouchDevice,
+    get running() { return Boolean(st); },
+    get audioSessionSupported() { return Boolean(navigator.audioSession); },
+  };
 })();

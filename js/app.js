@@ -197,7 +197,7 @@ function renderEntry(entry) {
     <div class="sets">${rows}</div>
     <div class="entry-foot">
       <button class="text-btn" data-act="add-set">＋ セット追加</button>
-      <button class="text-btn rest-btn" data-act="rest-start" title="レストタイマーを開始">⏱ ${RestTimer.fmt(restSeconds(ex))}</button>
+      ${RestTimer.enabled() ? `<button class="text-btn rest-btn" data-act="rest-start" title="レストタイマーを開始">⏱ ${RestTimer.fmt(restSeconds(ex))}</button>` : ''}
       <span class="entry-sum">${esc(entrySummary(ex, entry))}</span>
     </div>
   </article>`;
@@ -260,11 +260,16 @@ main.addEventListener('change', e => {
   if (t.dataset.f === 'r') {
     // 今日の記録で回数を入れ終えたら、レストタイマーを自動で開始
     const { ex } = findEntry(t);
-    if (ex && Number(t.value) > 0 && db.settings.restAuto !== false && ui.date === todayKey()) RestTimer.start(restSeconds(ex), ex.name);
+    if (ex && Number(t.value) > 0 && RestTimer.enabled() && db.settings.restAuto !== false && ui.date === todayKey()) RestTimer.start(restSeconds(ex), ex.name);
   } else if (t.dataset.act === 'mode') {
     const { entry } = findEntry(t);
     entry.mode = Number(t.value);
     saveDb(); render();
+  } else if (t.dataset.device) {
+    RestTimer.setDevice({ [t.dataset.device]: t.type === 'checkbox' ? t.checked : t.value });
+    const y = window.scrollY;
+    render();
+    window.scrollTo(0, y);
   } else if (t.dataset.setting) {
     const key = t.dataset.setting;
     if (t.type === 'checkbox') db.settings[key] = t.checked;
@@ -304,6 +309,7 @@ main.addEventListener('click', e => {
       document.querySelector('.entry:last-of-type')?.scrollIntoView({ block: 'center' });
       break;
     }
+    case 'rest-test': RestTimer.testSound(); break;
     case 'rest-start': { const ex = exById.get(entry.exId); RestTimer.start(restSeconds(ex), ex.name); break; }
     case 'add-set': {
       const last = entry.sets[entry.sets.length - 1];
@@ -909,7 +915,7 @@ function bmiText() {
 }
 
 function renderSettings() {
-  const s = db.settings, g = goalDef(), range = target();
+  const s = db.settings, g = goalDef(), range = target(), dev = RestTimer.device();
   const opts = (defs, cur) => Object.entries(defs).map(([k, d]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(d.label)}</option>`).join('');
   main.innerHTML = `<section>
     <div class="section-head"><h2>設定</h2></div>
@@ -933,6 +939,13 @@ function renderSettings() {
     </div>
     <div class="card">
       <h3>レストタイマー</h3>
+      <label class="field">この端末で使う<select data-device="timer">
+        <option value="auto" ${dev.timer === 'auto' ? 'selected' : ''}>スマホ・タブレットのみ</option>
+        <option value="on" ${dev.timer === 'on' ? 'selected' : ''}>使う</option>
+        <option value="off" ${dev.timer === 'off' ? 'selected' : ''}>使わない</option>
+      </select></label>
+      <p class="muted small">この端末では${RestTimer.enabled() ? '<b>使います</b>' : '<b>使いません</b>'}（${RestTimer.isTouchDevice() ? 'タッチ操作の端末' : 'PC'}と判定）。この設定は端末ごとで、同期されません。</p>
+      ${RestTimer.enabled() ? `
       <label class="field">レスト時間<select data-setting="restMode">
         <option value="auto" ${(s.restMode || 'auto') === 'auto' ? 'selected' : ''}>目的に合わせる</option>
         ${CONFIG.restPresets.map(sec => `<option value="${sec}" ${String(s.restMode) === String(sec) ? 'selected' : ''}>${RestTimer.fmt(sec)} 固定</option>`).join('')}
@@ -942,7 +955,11 @@ function renderSettings() {
         : 'すべての種目で同じ時間を使います'}</p>
       <label class="field">回数を入れたら自動で開始<input type="checkbox" data-setting="restAuto" ${s.restAuto !== false ? 'checked' : ''}></label>
       <label class="field">終了時に音を鳴らす<input type="checkbox" data-setting="restSound" ${s.restSound !== false ? 'checked' : ''}></label>
-      <p class="muted small">今日の記録で回数を入力し終えると開始します（各種目の ⏱ ボタンでも開始できます）。計測中は画面が消えないようにします。端末によっては振動しない・ロック中は鳴らないことがあります。</p>
+      ${RestTimer.audioSessionSupported ? `
+      <label class="field">消音モードでも鳴らす<input type="checkbox" data-device="ignoreSilent" ${dev.ignoreSilent ? 'checked' : ''}></label>
+      <p class="muted small">iPhone の消音モード中も音を鳴らします。鳴るたびに再生中の音楽が止まることがあります（この端末だけの設定）。</p>` : ''}
+      <button class="secondary-btn" data-act="rest-test">🔔 音を試す</button>
+      <p class="muted small">今日の記録で回数を入力し終えると開始します（各種目の ⏱ ボタンでも開始できます）。計測中は画面が消えないようにします。画面ロック中やほかのアプリを表示している間は鳴りません。iPhone は振動に対応していません。</p>` : ''}
     </div>
     <div class="card" id="syncCard">${syncCardHtml()}</div>
     <div class="card">
@@ -1063,7 +1080,8 @@ function importJson(file) {
 }
 
 // ---------- 起動 ----------
-RestTimer.init({ sound: () => db.settings.restSound !== false });
+RestTimer.init({ sound: () => db.settings.restSound !== false, ignoreSilent: () => RestTimer.device().ignoreSilent });
+if (!RestTimer.enabled()) RestTimer.stop();
 document.querySelector('.bottom-nav').addEventListener('click', e => {
   const b = e.target.closest('[data-view]');
   if (b) setView(b.dataset.view);
