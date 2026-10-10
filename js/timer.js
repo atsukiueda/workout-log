@@ -67,6 +67,7 @@ const RestTimer = (() => {
     bar.classList.toggle('done', done);
     bar.querySelector('.rest-time').textContent = done ? `+${fmt(-rem)}` : fmt(rem);
     bar.querySelector('.rest-label').textContent = done ? 'レスト終了' : 'レスト';
+    bar.querySelector('.rest-stop').textContent = done ? '閉じる' : 'スキップ';
     bar.querySelector('.rest-ex').textContent = st.label || '';
     bar.querySelector('.rest-progress span').style.width = `${Math.min(100, (1 - rem / st.total) * 100)}%`;
   }

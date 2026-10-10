@@ -392,3 +392,5 @@ body.rest-on { padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
 .rest-bar.done .rest-progress span { background: var(--accent-ink); }
 .rest-btn { font-variant-numeric: tabular-nums; }
 .field input[type="checkbox"] { width: 20px; height: 20px; }
+.rest-row .rest-stop { min-width: 72px; color: var(--text); }
+.rest-bar.done .rest-stop { background: var(--accent-ink); color: var(--accent); border-color: transparent; }
