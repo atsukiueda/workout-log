@@ -9,7 +9,7 @@ const RestTimer = (() => {
   let st = load();           // { end: ms, total: 秒, label } | null
   let alerted = st ? Date.now() >= st.end : false;
   let tick = null, wake = null, audio = null;
-  let opts = { sound: () => true, ignoreSilent: () => false };
+  let opts = { sound: () => true, ignoreSilent: () => false, repeat: () => 3 };
 
   function load() {
     try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; }
@@ -58,9 +58,16 @@ const RestTimer = (() => {
     if (audio.state === 'running') playTones();
     else audio.resume?.().then(playTones).catch(() => {});
   }
-  function notify() {
-    beep();
-    navigator.vibrate?.([200, 100, 200, 100, 400]);
+  // 終了の合図を repeat 回くり返す（約2秒おき）。スキップ・閉じる・次のタイマー開始で止まる
+  const REPEAT_GAP = 2000;
+  let repeatTimers = [];
+  function cancelRepeat() { repeatTimers.forEach(clearTimeout); repeatTimers = []; }
+  function notify(force = false) {
+    cancelRepeat();
+    const n = Math.max(1, Number(opts.repeat()) || 1);
+    const signal = () => { beep(force); navigator.vibrate?.([200, 100, 200, 100, 400]); };
+    signal(); // 1回目はすぐ（タップ操作の中で鳴らせるように）
+    for (let i = 1; i < n; i++) repeatTimers.push(setTimeout(signal, i * REPEAT_GAP));
   }
 
   // ---- 画面消灯を防ぐ
@@ -101,6 +108,7 @@ const RestTimer = (() => {
 
   function start(sec, label = '') {
     unlockAudio();
+    cancelRepeat();
     st = { end: Date.now() + sec * 1000, total: sec, label };
     alerted = false;
     save(); keepAwake(); loop();
@@ -113,7 +121,7 @@ const RestTimer = (() => {
     save(); render();
   }
   function stop() {
-    st = null; clearInterval(tick);
+    st = null; clearInterval(tick); cancelRepeat();
     save(); releaseAwake(); render();
   }
 
@@ -139,8 +147,7 @@ const RestTimer = (() => {
   // 設定画面の「音を試す」。タップ操作の中で呼ぶ
   function testSound() {
     unlockAudio();
-    beep(true);
-    navigator.vibrate?.([200, 100, 200]);
+    notify(true);
   }
 
   // ---- 端末ごとの設定（クラウド同期しない）

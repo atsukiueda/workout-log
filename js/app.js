@@ -955,6 +955,7 @@ function renderSettings() {
         : 'すべての種目で同じ時間を使います'}</p>
       <label class="field">回数を入れたら自動で開始<input type="checkbox" data-setting="restAuto" ${s.restAuto !== false ? 'checked' : ''}></label>
       <label class="field">終了時に音を鳴らす<input type="checkbox" data-setting="restSound" ${s.restSound !== false ? 'checked' : ''}></label>
+      <label class="field">終了の合図の回数<select data-setting="restRepeat">${[1, 3, 5].map(n => `<option value="${n}" ${Number(s.restRepeat ?? 3) === n ? 'selected' : ''}>${n}回</option>`).join('')}</select></label>
       ${RestTimer.audioSessionSupported ? `
       <label class="field">消音モードでも鳴らす<input type="checkbox" data-device="ignoreSilent" ${dev.ignoreSilent ? 'checked' : ''}></label>
       <p class="muted small">iPhone の消音モード中も音を鳴らします。鳴るたびに再生中の音楽が止まることがあります（この端末だけの設定）。</p>` : ''}
@@ -1080,7 +1081,11 @@ function importJson(file) {
 }
 
 // ---------- 起動 ----------
-RestTimer.init({ sound: () => db.settings.restSound !== false, ignoreSilent: () => RestTimer.device().ignoreSilent });
+RestTimer.init({
+  sound: () => db.settings.restSound !== false,
+  ignoreSilent: () => RestTimer.device().ignoreSilent,
+  repeat: () => db.settings.restRepeat ?? 3,
+});
 if (!RestTimer.enabled()) RestTimer.stop();
 document.querySelector('.bottom-nav').addEventListener('click', e => {
   const b = e.target.closest('[data-view]');
