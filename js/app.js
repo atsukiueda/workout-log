@@ -197,9 +197,24 @@ function renderEntry(entry) {
     <div class="sets">${rows}</div>
     <div class="entry-foot">
       <button class="text-btn" data-act="add-set">＋ セット追加</button>
+      <button class="text-btn rest-btn" data-act="rest-start" title="レストタイマーを開始">⏱ ${RestTimer.fmt(restSeconds(ex))}</button>
       <span class="entry-sum">${esc(entrySummary(ex, entry))}</span>
     </div>
   </article>`;
+}
+
+// 単関節種目か（レスト時間の初期値に使う）
+function isIsolation(ex) {
+  if (CONFIG.isolationMoves.includes(ex.move)) return true;
+  if (ex.move === '下半身') return !(ex.primary.includes('大腿四頭筋') && ex.primary.includes('大臀筋'));
+  return false;
+}
+// その種目のレスト時間（秒）。設定で固定値にしていればそれを使う
+function restSeconds(ex) {
+  const mode = db.settings.restMode;
+  if (mode && mode !== 'auto') return Number(mode);
+  const r = CONFIG.rest[db.settings.goal] || CONFIG.rest[CONFIG.defaultProfile.goal];
+  return isIsolation(ex) ? r.isolation : r.compound;
 }
 
 function daySummaryText(k) {
@@ -242,7 +257,11 @@ main.addEventListener('input', e => {
 
 main.addEventListener('change', e => {
   const t = e.target;
-  if (t.dataset.act === 'mode') {
+  if (t.dataset.f === 'r') {
+    // 今日の記録で回数を入れ終えたら、レストタイマーを自動で開始
+    const { ex } = findEntry(t);
+    if (ex && Number(t.value) > 0 && db.settings.restAuto !== false && ui.date === todayKey()) RestTimer.start(restSeconds(ex), ex.name);
+  } else if (t.dataset.act === 'mode') {
     const { entry } = findEntry(t);
     entry.mode = Number(t.value);
     saveDb(); render();
@@ -285,6 +304,7 @@ main.addEventListener('click', e => {
       document.querySelector('.entry:last-of-type')?.scrollIntoView({ block: 'center' });
       break;
     }
+    case 'rest-start': { const ex = exById.get(entry.exId); RestTimer.start(restSeconds(ex), ex.name); break; }
     case 'add-set': {
       const last = entry.sets[entry.sets.length - 1];
       entry.sets.push(last ? { ...last } : { w: '', r: '' });
@@ -911,6 +931,19 @@ function renderSettings() {
         <div class="small">推奨回数 ${g.reps[0]}〜${g.reps[1]}回 ・ 評価画面のレーダーと次のトレーニング提案に使います</div>
       </div>
     </div>
+    <div class="card">
+      <h3>レストタイマー</h3>
+      <label class="field">レスト時間<select data-setting="restMode">
+        <option value="auto" ${(s.restMode || 'auto') === 'auto' ? 'selected' : ''}>目的に合わせる</option>
+        ${CONFIG.restPresets.map(sec => `<option value="${sec}" ${String(s.restMode) === String(sec) ? 'selected' : ''}>${RestTimer.fmt(sec)} 固定</option>`).join('')}
+      </select></label>
+      <p class="muted small">${(s.restMode || 'auto') === 'auto'
+        ? `${esc(goalDef().label)}: 複数関節の種目 ${RestTimer.fmt((CONFIG.rest[s.goal] || CONFIG.rest.bulk).compound)}、単関節の種目 ${RestTimer.fmt((CONFIG.rest[s.goal] || CONFIG.rest.bulk).isolation)}`
+        : 'すべての種目で同じ時間を使います'}</p>
+      <label class="field">回数を入れたら自動で開始<input type="checkbox" data-setting="restAuto" ${s.restAuto !== false ? 'checked' : ''}></label>
+      <label class="field">終了時に音を鳴らす<input type="checkbox" data-setting="restSound" ${s.restSound !== false ? 'checked' : ''}></label>
+      <p class="muted small">今日の記録で回数を入力し終えると開始します（各種目の ⏱ ボタンでも開始できます）。計測中は画面が消えないようにします。端末によっては振動しない・ロック中は鳴らないことがあります。</p>
+    </div>
     <div class="card" id="syncCard">${syncCardHtml()}</div>
     <div class="card">
       <h3>データのバックアップ</h3>
@@ -1030,6 +1063,7 @@ function importJson(file) {
 }
 
 // ---------- 起動 ----------
+RestTimer.init({ sound: () => db.settings.restSound !== false });
 document.querySelector('.bottom-nav').addEventListener('click', e => {
   const b = e.target.closest('[data-view]');
   if (b) setView(b.dataset.view);

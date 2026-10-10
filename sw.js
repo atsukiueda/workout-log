@@ -1,5 +1,5 @@
 // オフライン対応: 取得できたらキャッシュを更新し、オフライン時はキャッシュを返す
-const CACHE = 'workout-log-v6';
+const CACHE = 'workout-log-v7';
 const ASSETS = [
   './',
   'index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
   'js/supabase-config.js',
   'js/config.js',
   'js/sync.js',
+  'js/timer.js',
   'js/calc.js',
   'js/app.js',
   'manifest.webmanifest',

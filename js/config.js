@@ -92,7 +92,21 @@ const CONFIG = {
     intermediate: { label: '中級者（1〜3年）', factor: 1.0 },
     advanced: { label: '上級者（3年〜）', factor: 1.25 },
   },
-  defaultProfile: { goal: 'bulk', level: 'intermediate', height: '', includeAbs: true, includeCalves: true },
+  defaultProfile: { goal: 'bulk', level: 'intermediate', height: '', includeAbs: true, includeCalves: true, restMode: 'auto', restAuto: true, restSound: true },
+
+  // レスト時間の初期値（秒）。目的 × 種目の種類（複数関節 / 単関節）
+  //   筋肥大: 60秒超でわずかに有利、90秒超では差がほぼない（Singer ら 2024 メタ分析）。
+  //   経験者では3分休息が1分より筋力・筋肥大とも大きかった（Schoenfeld ら 2016）。
+  //   複数関節種目は疲労が大きく、重量・回数を保つため長めにする
+  rest: {
+    bulk: { compound: 120, isolation: 90 },
+    cut: { compound: 120, isolation: 90 },
+    strength: { compound: 180, isolation: 120 },
+    health: { compound: 90, isolation: 60 },
+  },
+  // 単関節種目とみなす動作分類（「下半身」は大腿四頭筋と大臀筋の両方が主対象なら複数関節）
+  isolationMoves: ['カール', 'エクステンション', 'レイズ', 'フライ', 'カーフ', '体幹'],
+  restPresets: [60, 90, 120, 180],
 
   // 回復の目安（時間）。その日の部位の換算セット数が heavySets 以上なら長めに見る
   recovery: { normalHours: 48, heavyHours: 72, heavySets: 6 },

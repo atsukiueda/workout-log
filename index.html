@@ -30,6 +30,17 @@
     <p class="loading">種目マスタを読み込み中…</p>
   </main>
 
+  <!-- レストタイマー -->
+  <div class="rest-bar" id="restBar" hidden role="timer">
+    <div class="rest-progress"><span></span></div>
+    <div class="rest-row">
+      <div class="rest-info"><span class="rest-label">レスト</span><span class="rest-time">0:00</span><span class="rest-ex"></span></div>
+      <button data-rest="-15" aria-label="15秒減らす">−15</button>
+      <button data-rest="15" aria-label="15秒増やす">+15</button>
+      <button data-rest="stop" class="rest-stop" aria-label="タイマーを止める">✕</button>
+    </div>
+  </div>
+
   <nav class="bottom-nav" aria-label="画面切替">
     <button data-view="record" class="active"><span class="nav-icon">✎</span>記録</button>
     <button data-view="eval"><span class="nav-icon">◔</span>評価</button>
@@ -58,6 +69,7 @@
   <script src="js/config.js"></script>
   <script src="js/calc.js"></script>
   <script src="js/sync.js"></script>
+  <script src="js/timer.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
