@@ -123,7 +123,7 @@ function previousEntries(exId, mode, beforeKey) {
 }
 
 // ---------- UI状態 ----------
-const ui = { view: 'record', date: todayKey(), tab: '胸', type: 'すべて', query: '', openPart: null, trend: { part: 'all', days: 14, metric: 'volume', tip: null } };
+const ui = { view: 'record', date: todayKey(), tab: null, type: 'すべて', query: '', openPart: null, trend: { part: 'all', days: 14, metric: 'volume', tip: null } };
 const main = $('#main');
 
 function setView(v) {
@@ -139,6 +139,19 @@ function render() {
   $('#dateInput').value = ui.date;
   ({ record: renderRecord, eval: renderEval, trend: renderTrend, history: renderHistory, settings: renderSettings })[ui.view]();
 }
+
+// ---------- お気に入り（設定に保存するのでクラウド同期される） ----------
+const FAV = 'fav';
+const favorites = () => (Array.isArray(db.settings.favorites) ? db.settings.favorites : []);
+const isFavorite = id => favorites().includes(id);
+function toggleFavorite(id) {
+  db.settings.favorites = isFavorite(id) ? favorites().filter(x => x !== id) : [...favorites(), id];
+  saveDb();
+}
+const favButton = id => {
+  const on = isFavorite(id);
+  return `<button class="fav-btn ${on ? 'on' : ''}" data-fav="${id}" aria-pressed="${on}" aria-label="${on ? 'お気に入りから外す' : 'お気に入りに登録'}">${on ? '★' : '☆'}</button>`;
+};
 
 // ---------- 記録画面 ----------
 const typeBadge = t => `<span class="badge type-${esc(t)}">${esc(t)}</span>`;
@@ -205,7 +218,7 @@ function renderEntry(entry) {
         <div class="meta">${typeBadge(ex.type)} 主対象: ${esc(prim.join('・') || '—')} ・ 目安 ${esc(ex.setsGuide)}セット×${esc(ex.repsGuide)}${ex.timed ? '' : '回'}</div>
         ${bodyLoadNote(ex) ? `<div class="meta body-note">${esc(bodyLoadNote(ex))}（体重 ${fmtNum(bodyWeight())}kg）</div>` : ''}
       </div>
-      <button class="text-btn danger" data-act="del-entry">削除</button>
+      <div class="entry-actions">${favButton(ex.id)}<button class="text-btn danger" data-act="del-entry">削除</button></div>
     </div>
     ${modes ? `<label class="mode-select">動作 <select data-act="mode">${modes.map((m, i) => `<option value="${i}" ${i === (entry.mode ?? 0) ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>` : ''}
     ${prev ? `<p class="prev">前回 ${fmtShort(prev.date)}: ${prevSets.map(s => esc(setText(ex, s))).join(' / ')}</p>` : ''}
@@ -305,6 +318,13 @@ main.addEventListener('change', e => {
 });
 
 main.addEventListener('click', e => {
+  const f = e.target.closest('[data-fav]');
+  if (f) {
+    const id = f.dataset.fav;
+    toggleFavorite(id);
+    main.querySelectorAll(`[data-fav="${id}"]`).forEach(el => { el.outerHTML = favButton(id); });
+    return;
+  }
   const b = e.target.closest('[data-act]');
   if (!b || b.tagName === 'SELECT') return;
   const act = b.dataset.act;
@@ -373,6 +393,7 @@ const sheet = $('#pickerSheet'), backdrop = $('#sheetBackdrop');
 const TYPES = ['すべて', 'マシン', 'プレートロード', 'フリーウェイト', '自重'];
 
 function openPicker() {
+  if (!ui.tab) ui.tab = favorites().length ? FAV : '胸';
   sheet.hidden = backdrop.hidden = false;
   document.body.classList.add('sheet-open');
   renderPicker();
@@ -384,9 +405,10 @@ function closePicker() {
 }
 
 function renderPicker() {
-  $('#partTabs').innerHTML = CONFIG.tabs.map(t => {
-    const n = master.filter(e => e.tabs.includes(t)).length;
-    return `<button role="tab" aria-selected="${t === ui.tab && !ui.query}" data-tab="${t}">${t}<small>${n}</small></button>`;
+  const favSet = new Set(favorites());
+  $('#partTabs').innerHTML = [FAV, ...CONFIG.tabs].map(t => {
+    const n = t === FAV ? master.filter(e => favSet.has(e.id)).length : master.filter(e => e.tabs.includes(t)).length;
+    return `<button role="tab" aria-selected="${t === ui.tab && !ui.query}" data-tab="${t}" class="${t === FAV ? 'fav-tab' : ''}">${t === FAV ? '★ お気に入り' : t}<small>${n}</small></button>`;
   }).join('');
   $('#typeChips').innerHTML = TYPES.map(t => `<button class="chip ${t === ui.type ? 'on' : ''}" data-type="${t}">${t}</button>`).join('');
   const q = searchKey(ui.query);
@@ -394,14 +416,15 @@ function renderPicker() {
   const usage = {};
   for (const k of sortedDates()) for (const e of db.sessions[k].entries) usage[e.exId] = (usage[e.exId] || 0) + 1;
   const list = master
-    .filter(e => q ? e.searchKey.includes(q) : e.tabs.includes(ui.tab))
+    .filter(e => q ? e.searchKey.includes(q) : ui.tab === FAV ? favSet.has(e.id) : e.tabs.includes(ui.tab))
     .filter(e => ui.type === 'すべて' || e.type === ui.type)
     .sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
   $('#pickerList').innerHTML = list.length ? list.map(e => `
-    <li><button data-ex="${e.id}">
+    <li class="pick-row"><button class="pick-main" data-ex="${e.id}">
       <span class="pick-name">${esc(e.name)}${done.has(e.id) ? ' <span class="badge done">追加済</span>' : ''}</span>
       <span class="pick-meta">${typeBadge(e.type)} ${esc(e.primary.join('・'))}${e.secondary.length ? ` <span class="muted">／${esc(e.secondaryRaw.map(fmtToken).join('・'))}</span>` : ''}${usage[e.id] ? ` <span class="muted">・${usage[e.id]}回実施</span>` : ''}</span>
-    </button></li>`).join('') : '<li class="empty">該当する種目がありません</li>';
+    </button>${favButton(e.id)}</li>`).join('')
+    : `<li class="empty">${ui.tab === FAV && !q ? 'お気に入りはまだありません。各部位のタブで種目の ☆ をタップすると登録できます。' : '該当する種目がありません'}</li>`;
 }
 
 $('#partTabs').addEventListener('click', e => {
@@ -416,6 +439,14 @@ $('#typeChips').addEventListener('click', e => {
 });
 $('#pickerSearch').addEventListener('input', e => { ui.query = e.target.value; renderPicker(); });
 $('#pickerList').addEventListener('click', e => {
+  const f = e.target.closest('[data-fav]');
+  if (f) {
+    toggleFavorite(f.dataset.fav);
+    const y = $('#pickerList').scrollTop;
+    renderPicker();
+    $('#pickerList').scrollTop = y;
+    return;
+  }
   const b = e.target.closest('[data-ex]');
   if (!b) return;
   const exId = b.dataset.ex;

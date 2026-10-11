@@ -395,3 +395,18 @@ body.rest-on { padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
 .rest-row .rest-stop { min-width: 72px; color: var(--text); }
 .rest-bar.done .rest-stop { background: var(--accent-ink); color: var(--accent); border-color: transparent; }
 .body-note { color: var(--accent); }
+
+/* お気に入り */
+.pick-row { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); }
+.pick-row .pick-main { flex: 1; min-width: 0; border-bottom: none; }
+.fav-btn {
+  flex: 0 0 auto; border: none; background: none; width: 44px; min-height: 44px;
+  font-size: 1.3rem; line-height: 1; color: var(--muted);
+}
+.fav-btn.on { color: #e3a008; }
+.fav-btn:hover { background: var(--surface-2); }
+.part-tabs .fav-tab { color: #b7791f; }
+.part-tabs .fav-tab[aria-selected="true"] { color: #e3a008; border-bottom-color: #e3a008; }
+.entry-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.entry-actions .fav-btn { width: 36px; min-height: 36px; }
+.picker-list .fav-btn { width: 48px; padding: 0; border-bottom: none; align-items: center; justify-content: center; flex-direction: row; }

@@ -92,7 +92,7 @@ const CONFIG = {
     intermediate: { label: '中級者（1〜3年）', factor: 1.0 },
     advanced: { label: '上級者（3年〜）', factor: 1.25 },
   },
-  defaultProfile: { goal: 'bulk', level: 'intermediate', height: '', includeAbs: true, includeCalves: true, restMode: 'auto', restAuto: true, restSound: true, restRepeat: 3 },
+  defaultProfile: { goal: 'bulk', level: 'intermediate', height: '', includeAbs: true, includeCalves: true, restMode: 'auto', restAuto: true, restSound: true, restRepeat: 3, favorites: [] },
 
   // レスト時間の初期値（秒）。目的 × 種目の種類（複数関節 / 単関節）
   //   筋肥大: 60秒超でわずかに有利、90秒超では差がほぼない（Singer ら 2024 メタ分析）。
