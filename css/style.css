@@ -410,3 +410,12 @@ body.rest-on { padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
 .entry-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .entry-actions .fav-btn { width: 36px; min-height: 36px; }
 .picker-list .fav-btn { width: 48px; padding: 0; border-bottom: none; align-items: center; justify-content: center; flex-direction: row; }
+
+/* 次回の目安 */
+.next-hint { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--accent-soft); font-size: .85rem; }
+.next-hint.first { background: var(--surface-2); color: var(--text-2); }
+.next-hint .next-main { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.next-hint b { font-variant-numeric: tabular-nums; }
+.next-hint.up b { color: var(--good); }
+.next-hint.down b { color: var(--warn); }
+.next-why { font-size: .75rem; color: var(--text-2); margin-top: 2px; }

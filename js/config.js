@@ -108,6 +108,19 @@ const CONFIG = {
   isolationMoves: ['カール', 'エクステンション', 'レイズ', 'フライ', 'カーフ', '体幹'],
   restPresets: [60, 90, 120, 180],
 
+  // 次回の重量の提案（ダブルプログレッション）
+  //   前回、主セット（最も重いセット）すべてで回数範囲の上限に届いたら重量を上げる。
+  //   ACSM（2009）の「目標回数を1〜2回超えられたら負荷を2〜10%増やす」に沿った刻み
+  progression: {
+    barbellUpper: 2.5, barbellLower: 5,
+    dumbbell: 1,
+    machineUpper: 2.5, machineLower: 5,
+    bodyweightAdd: 2.5,           // 懸垂・ディップスの追加重量
+    assist: 2.5,                  // アシスト種目はアシストを減らす
+    addableBodyweight: ['EX102', 'EX137'],
+    dropRatio: 0.9,               // 下限より3回以上少なかったら約10%下げる
+  },
+
   // 回復の目安（時間）。その日の部位の換算セット数が heavySets 以上なら長めに見る
   recovery: { normalHours: 48, heavyHours: 72, heavySets: 6 },
 

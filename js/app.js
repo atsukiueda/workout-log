@@ -202,8 +202,11 @@ function renderEntry(entry) {
   const prevSets = prev ? prev.entry.sets.filter(Calc.isDone) : [];
   const targets = Calc.targets(ex, entry.mode);
   const prim = Object.entries(targets).filter(([, f]) => f >= CONFIG.primaryFactor - 1e-9).map(([m]) => m);
+  // 薄い文字の見本: 今日の目安があればそれ、なければ前回の同じセット
+  const sug = nextSuggestion(ex, entry);
+  const sugPh = sug && sug.kind !== 'first' ? { w: sug.weight ? String(sug.weight) : '', r: String(sug.reps) } : null;
   const rows = entry.sets.map((s, i) => {
-    const ph = prevSets[i] || prevSets[prevSets.length - 1];
+    const ph = sugPh || prevSets[i] || prevSets[prevSets.length - 1];
     return `<div class="set-row" data-i="${i}">
       <span class="set-no">${i + 1}</span>
       ${u.hideWeight ? '<span class="set-skip">—</span>' : `<label class="num-field"><input data-f="w" type="text" inputmode="decimal" value="${esc(s.w)}" placeholder="${ph && ph.w !== '' ? esc(ph.w) : ''}" aria-label="${i + 1}セット目の重量"><span>${u.w}</span></label>`}
@@ -222,6 +225,7 @@ function renderEntry(entry) {
     </div>
     ${modes ? `<label class="mode-select">動作 <select data-act="mode">${modes.map((m, i) => `<option value="${i}" ${i === (entry.mode ?? 0) ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>` : ''}
     ${prev ? `<p class="prev">前回 ${fmtShort(prev.date)}: ${prevSets.map(s => esc(setText(ex, s))).join(' / ')}</p>` : ''}
+    ${suggestionHtml(ex, entry)}
     <div class="sets">${rows}</div>
     <div class="entry-foot">
       <button class="text-btn" data-act="add-set">＋ セット追加</button>
@@ -243,6 +247,74 @@ function restSeconds(ex) {
   if (mode && mode !== 'auto') return Number(mode);
   const r = CONFIG.rest[db.settings.goal] || CONFIG.rest[CONFIG.defaultProfile.goal];
   return isIsolation(ex) ? r.isolation : r.compound;
+}
+
+// ---------- 次回の重量の提案（ダブルプログレッション） ----------
+// 回数の範囲: 種目の目安回数と目的の推奨回数が重なる部分。単関節種目は種目の目安を優先
+function repRange(ex) {
+  if (ex.timed || ex.repMin == null) return null;
+  const [gMin, gMax] = goalDef().reps;
+  const mMin = ex.repMin, mMax = ex.repMax ?? ex.repMin;
+  // 単関節種目と、重りを足さない自重種目（腕立て伏せなど）は種目の目安をそのまま使う
+  if (isIsolation(ex) || (Calc.loadKind(ex) === 'bodyweight' && !progressionStep(ex))) return [mMin, mMax];
+  const lo = Math.max(mMin, gMin), hi = Math.min(mMax, gMax);
+  return hi - lo >= 2 ? [lo, hi] : [gMin, gMax];
+}
+function progressionStep(ex) {
+  const p = CONFIG.progression;
+  const kind = Calc.loadKind(ex);
+  const lower = ex.tabs.includes('脚') || ex.tabs.includes('臀部');
+  if (kind === 'assist') return p.assist;
+  if (kind === 'bodyweight') return p.addableBodyweight.includes(ex.id) ? p.bodyweightAdd : 0;
+  if (ex.name.includes('ダンベル')) return p.dumbbell;
+  if (ex.type === 'フリーウェイト') return lower ? p.barbellLower : p.barbellUpper;
+  return lower ? p.machineLower : p.machineUpper;
+}
+const weightText = (ex, w) => {
+  const kind = Calc.loadKind(ex);
+  if (kind === 'assist') return `アシスト${fmtNum(w)}kg`;
+  if (kind === 'bodyweight') return w ? `自重+${fmtNum(w)}kg` : '自重';
+  return `${fmtNum(w)}kg`;
+};
+
+function nextSuggestion(ex, entry) {
+  const range = repRange(ex);
+  if (!range) return null;
+  const [lo, hi] = range;
+  const prev = previousEntries(ex.id, entry.mode, ui.date).pop();
+  if (!prev) return { kind: 'first', lo, hi, text: `${lo}〜${hi}回できる重量で始めましょう` };
+  const sets = prev.entry.sets.filter(Calc.isDone).map(s => ({ w: Number(s.w) || 0, r: Number(s.r) }));
+  const assist = Calc.loadKind(ex) === 'assist';
+  // 主セット = 最も負荷の高いセット（アシスト種目はアシストが最も少ないセット）
+  const top = assist ? Math.min(...sets.map(s => s.w)) : Math.max(...sets.map(s => s.w));
+  const minReps = Math.min(...sets.filter(s => s.w === top).map(s => s.r));
+  const step = progressionStep(ex);
+  const prevText = `前回 ${weightText(ex, top)}・最少${minReps}回`;
+  const roundStep = w => (step ? Math.round(w / step) * step : w);
+  if (minReps >= hi) {
+    if (!step) return { kind: 'reps', weight: top, reps: Math.max(hi, minReps) + 1, lo, hi, text: `${prevText}で上限到達 → 回数をさらに増やす（難しいバリエーションへの移行も検討）` };
+    const w = assist ? Math.max(0, top - step) : top + step;
+    return { kind: 'up', weight: w, reps: lo, lo, hi, text: `${prevText}で上限${hi}回に到達 → 重量アップ` };
+  }
+  if (minReps < lo - 2 && step) {
+    const w = assist ? top + step : Math.max(0, roundStep(top * CONFIG.progression.dropRatio));
+    return { kind: 'down', weight: w, reps: lo, lo, hi, text: `${prevText}（目安${lo}〜${hi}回を大きく下回った）→ 重量を下げる` };
+  }
+  if (minReps < lo) return { kind: 'same', weight: top, reps: lo, lo, hi, text: `${prevText} → 同じ重量で${lo}回を目指す` };
+  return { kind: 'reps', weight: top, reps: Math.min(minReps + 1, hi), lo, hi, text: `${prevText} → 同じ重量で1回多く` };
+}
+
+function suggestionHtml(ex, entry) {
+  const s = nextSuggestion(ex, entry);
+  if (!s) return '';
+  if (s.kind === 'first') return `<div class="next-hint first">💡 ${esc(s.text)}</div>`;
+  const icon = { up: '⬆', down: '⬇', same: '➡', reps: '➕' }[s.kind];
+  const canApply = entry.sets.some(x => x.w === '') && (s.weight > 0 || Calc.loadKind(ex) !== 'bodyweight');
+  return `<div class="next-hint ${s.kind}">
+    <div class="next-main">💡 今日の目安 <b>${icon} ${esc(weightText(ex, s.weight))} × ${s.reps}回</b>
+      ${canApply ? '<button class="text-btn small" data-act="apply-hint">重量を入力</button>' : ''}</div>
+    <div class="next-why">${esc(s.text)}</div>
+  </div>`;
 }
 
 function daySummaryText(k) {
@@ -362,6 +434,12 @@ main.addEventListener('click', e => {
       setView('record');
       document.querySelector('.entry:last-of-type')?.scrollIntoView({ block: 'center' });
       break;
+    }
+    case 'apply-hint': {
+      const ex = exById.get(entry.exId);
+      const s = nextSuggestion(ex, entry);
+      if (s && s.weight != null) entry.sets.forEach(x => { if (x.w === '') x.w = String(s.weight || ''); });
+      saveDb(); render(); break;
     }
     case 'rest-test': RestTimer.testSound(); break;
     case 'rest-start': { const ex = exById.get(entry.exId); RestTimer.start(restSeconds(ex), ex.name); break; }
