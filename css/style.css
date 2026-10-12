@@ -436,3 +436,31 @@ body.rest-on { padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
 .prog-hit { fill: transparent; cursor: pointer; }
 .prog-best { fill: var(--good); font-size: 11px; font-weight: 600; }
 .ex-eval-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* カレンダー */
+.cal-head { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 6px; }
+.cal-head strong { min-width: 7.5em; text-align: center; font-size: 1.05rem; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-wd { text-align: center; font-size: .72rem; color: var(--muted); padding: 2px 0; }
+.cal-wd.sun, .cal-cell.sun .cal-num { color: #d9534f; }
+.cal-wd.sat, .cal-cell.sat .cal-num { color: #3b82f6; }
+.cal-cell {
+  aspect-ratio: 1 / 1.05; min-width: 0; border: 1px solid transparent; border-radius: 8px;
+  background: var(--surface-2); padding: 3px 2px; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.cal-cell.empty { background: none; }
+.cal-num { font-size: .78rem; line-height: 1.1; }
+.cal-parts { font-size: .7rem; font-weight: 700; line-height: 1.15; letter-spacing: -.02em; white-space: nowrap; }
+.cal-cell.lv1, .cal-legend .lv1 { background: color-mix(in srgb, var(--bar) 32%, var(--surface)); }
+.cal-cell.lv2, .cal-legend .lv2 { background: color-mix(in srgb, var(--bar) 60%, var(--surface)); }
+.cal-cell.lv3, .cal-legend .lv3 { background: var(--bar); }
+.cal-cell.lv3 .cal-parts, .cal-cell.lv3 .cal-num { color: #fff; }
+.cal-cell.lv3.sun .cal-num, .cal-cell.lv3.sat .cal-num { color: #fff; }
+.cal-cell.today { border-color: var(--accent); border-width: 2px; }
+.cal-cell.sel { outline: 2px solid var(--text); outline-offset: 1px; }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0 10px; }
+.cal-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+.cal-stats { margin-bottom: 0; }
+.cal-detail { margin-top: 10px; }
+.list-head { margin: 4px 0 8px; font-size: .95rem; }

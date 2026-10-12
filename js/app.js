@@ -123,7 +123,7 @@ function previousEntries(exId, mode, beforeKey) {
 }
 
 // ---------- UI状態 ----------
-const ui = { view: 'record', date: todayKey(), tab: null, type: 'すべて', query: '', openPart: null, trend: { view: 'parts', part: 'all', days: 14, metric: 'volume', tip: null }, prog: { key: null, metric: null, range: 180, tip: null } };
+const ui = { view: 'record', date: todayKey(), tab: null, type: 'すべて', query: '', openPart: null, trend: { view: 'parts', part: 'all', days: 14, metric: 'volume', tip: null }, prog: { key: null, metric: null, range: 180, tip: null }, cal: { month: null, sel: null } };
 const main = $('#main');
 
 function setView(v) {
@@ -471,6 +471,9 @@ main.addEventListener('click', e => {
     case 'trend-part': setTrend({ part: b.dataset.part, tip: null }); break;
     case 'trend-days': setTrend({ days: Number(b.dataset.days), tip: null }); break;
     case 'trend-metric': setTrend({ metric: b.dataset.metric }); break;
+    case 'cal-month': setCal({ month: b.dataset.n === '0' ? monthKey(todayKey()) : addMonths(ui.cal.month, Number(b.dataset.n)), sel: null }); break;
+    case 'cal-day': setCal({ sel: ui.cal.sel === b.dataset.date ? null : b.dataset.date }); break;
+    case 'cal-close': setCal({ sel: null }); break;
     case 'trend-view': ui.trend.view = b.dataset.view; render(); window.scrollTo(0, 0); break;
     case 'prog-range': setProg({ range: Number(b.dataset.days), tip: null }); break;
     case 'prog-metric': setProg({ metric: b.dataset.metric }); break;
@@ -1200,11 +1203,86 @@ function setTrend(patch) {
 }
 
 // ---------- 履歴画面 ----------
+// ---------- カレンダー ----------
+const PART_SHORT = { '胸': '胸', '背中': '背', '肩': '肩', '腕': '腕', '脚': '脚', '臀部': '尻', '体幹': '腹' };
+const monthKey = k => k.slice(0, 7);
+const addMonths = (m, n) => { const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo - 1 + n, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+
+// その日の主な部位（換算1セット以上、多い順）と合計セット数
+function dayInfo(k) {
+  const items = itemsOf(k);
+  if (!items.length) return null;
+  const load = Calc.muscleLoad(items, bodyWeight());
+  const parts = CONFIG.parts.filter(p => load.parts[p].sets >= 1).sort((a, b) => load.parts[b].sets - load.parts[a].sets);
+  const sets = items.reduce((a, { entry }) => a + entry.sets.filter(Calc.isDone).length, 0);
+  return { items, load, parts, sets };
+}
+
+function calendarCard() {
+  const month = ui.cal.month;
+  const [y, m] = month.split('-').map(Number);
+  const first = new Date(y, m - 1, 1);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < first.getDay(); i++) cells.push('<div class="cal-cell empty"></div>');
+  const trained = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const k = `${month}-${pad(d)}`;
+    const info = dayInfo(k);
+    if (info) trained.push({ k, info });
+    const lv = !info ? 0 : info.sets >= 20 ? 3 : info.sets >= 10 ? 2 : 1;
+    const shown = info ? info.parts.slice(0, 2).map(p => PART_SHORT[p]).join('') + (info.parts.length > 2 ? '+' : '') : '';
+    const wd = new Date(y, m - 1, d).getDay();
+    cells.push(`<button class="cal-cell lv${lv} ${k === todayKey() ? 'today' : ''} ${k === ui.cal.sel ? 'sel' : ''} ${wd === 0 ? 'sun' : wd === 6 ? 'sat' : ''}"
+      data-act="cal-day" data-date="${k}" aria-label="${m}月${d}日${info ? ` ${info.parts.join('・')} ${info.sets}セット` : ''}">
+      <span class="cal-num">${d}</span>${shown ? `<span class="cal-parts">${shown}</span>` : ''}</button>`);
+  }
+  // 月の集計
+  const totalSets = trained.reduce((a, t) => a + t.info.sets, 0);
+  const isCurrent = month === monthKey(todayKey());
+  const elapsedDays = isCurrent ? new Date().getDate() : daysInMonth;
+  const perWeek = trained.length / (Math.max(elapsedDays, 7) / 7); // 月初の数日で極端な値にならないよう最低1週間で割る
+  const prevCount = sortedDates().filter(k => monthKey(k) === addMonths(month, -1)).length;
+  // 選択した日の内容
+  const sel = ui.cal.sel && monthKey(ui.cal.sel) === month ? ui.cal.sel : null;
+  const selInfo = sel && dayInfo(sel);
+  return `<div class="card calendar">
+    <div class="cal-head">
+      <button class="icon-btn" data-act="cal-month" data-n="-1" aria-label="前の月">‹</button>
+      <strong>${y}年${m}月</strong>
+      <button class="icon-btn" data-act="cal-month" data-n="1" aria-label="次の月">›</button>
+      ${isCurrent ? '' : '<button class="today-btn" data-act="cal-month" data-n="0">今月</button>'}
+    </div>
+    <div class="cal-grid">
+      ${['日', '月', '火', '水', '木', '金', '土'].map((w, i) => `<div class="cal-wd ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</div>`).join('')}
+      ${cells.join('')}
+    </div>
+    <div class="cal-legend muted small">
+      <span><i class="lv1"></i>〜9セット</span><span><i class="lv2"></i>10〜19</span><span><i class="lv3"></i>20〜</span>
+      <span>胸 背 肩 腕 脚 尻 腹 = 主な部位</span>
+    </div>
+    <div class="stat-row cal-stats">
+      <div class="stat"><span class="stat-value">${trained.length}<small>日</small></span><span class="stat-label">トレーニング日${prevCount ? `（前月 ${prevCount}日）` : ''}</span></div>
+      <div class="stat"><span class="stat-value">${fmtNum(perWeek)}<small>回</small></span><span class="stat-label">週あたり${isCurrent ? '（今日まで）' : ''}</span></div>
+      <div class="stat"><span class="stat-value">${fmtInt(totalSets)}</span><span class="stat-label">合計セット</span></div>
+    </div>
+    ${sel ? `<div class="ttip cal-detail">
+      <div class="ttip-head"><strong>${fmtDate(sel)}</strong><button class="icon-btn small" data-act="cal-close" aria-label="閉じる">✕</button></div>
+      ${selInfo ? `<div class="history-parts">${selInfo.parts.map(p => `<span class="badge">${p} ${fmtNum(selInfo.load.parts[p].sets)}</span>`).join('')}</div>
+        <div class="small">${selInfo.items.map(({ ex }) => esc(ex.name)).join('、')}（${selInfo.sets}セット）</div>` : '<div class="muted small">記録はありません</div>'}
+      <button class="text-btn" data-act="open-date" data-date="${sel}">${selInfo ? 'この日の記録を開く ›' : 'この日に記録する ›'}</button>
+    </div>` : ''}
+  </div>`;
+}
+
 function renderHistory() {
   const bw = bodyWeight();
-  const dates = sortedDates().reverse();
+  if (!ui.cal.month) ui.cal.month = monthKey(ui.date);
+  const dates = sortedDates().reverse().filter(k => monthKey(k) === ui.cal.month);
   main.innerHTML = `<section>
-    <div class="section-head"><h2>履歴</h2><span class="muted">${dates.length}日</span></div>
+    <div class="section-head"><h2>履歴</h2><span class="muted">全${sortedDates().length}日</span></div>
+    ${calendarCard()}
+    <h3 class="list-head">${Number(ui.cal.month.slice(5))}月の記録</h3>
     ${dates.length ? dates.map(k => {
       const items = itemsOf(k);
       const load = Calc.muscleLoad(items, bw);
@@ -1215,8 +1293,15 @@ function renderHistory() {
         <div class="history-parts">${top.map(p => `<span class="badge">${p} ${fmtNum(load.parts[p].sets)}</span>`).join('')}</div>
         <div class="history-ex muted">${items.map(({ ex }) => esc(ex.name)).join('、')}</div>
       </button>`;
-    }).join('') : '<p class="empty">まだ記録がありません。</p>'}
+    }).join('') : '<p class="empty">この月の記録はありません。</p>'}
   </section>`;
+}
+
+function setCal(patch) {
+  Object.assign(ui.cal, patch);
+  const y = window.scrollY;
+  render();
+  window.scrollTo(0, y);
 }
 
 // ---------- 設定画面 ----------
