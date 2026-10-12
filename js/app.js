@@ -445,6 +445,7 @@ main.addEventListener('click', e => {
       if (s && s.weight != null) entry.sets.forEach(x => { if (x.w === '') x.w = String(s.weight || ''); });
       saveDb(); render(); break;
     }
+    case 'check-update': checkForUpdate(true); break;
     case 'rest-test': RestTimer.testSound(); break;
     case 'rest-start': { const ex = exById.get(entry.exId); RestTimer.start(restSeconds(ex), ex.name); break; }
     case 'add-set': {
@@ -512,6 +513,7 @@ function closePicker() {
   sheet.hidden = backdrop.hidden = true;
   document.body.classList.remove('sheet-open');
   ui.query = ''; $('#pickerSearch').value = '';
+  if (reloadPending) reloadWhenSafe();
 }
 
 function renderPicker() {
@@ -1374,6 +1376,8 @@ function renderSettings() {
     ${methodHtml()}
     <div class="card">
       <p class="muted small">種目マスタ: ${master.length}種目（${esc(CONFIG.masterUrl)}）</p>
+      <p class="muted small">アプリのバージョン: <span id="appVersion">${esc(appVersion || '確認中…')}</span>
+        <button class="text-btn small" data-act="check-update">更新を確認</button></p>
       <button class="text-btn danger" data-act="clear-all">すべての記録を削除</button>
     </div>
   </section>`;
@@ -1479,6 +1483,53 @@ function importJson(file) {
   reader.readAsText(file);
 }
 
+// ---------- アプリの更新 ----------
+//   iPhone のホーム画面アプリは、切り替えて戻っても再読み込みされないため、
+//   画面に戻ったときに更新を確認し、新しい版が入ったら自動で読み込み直す（入力中は待つ）
+let swReg = null, appVersion = '', lastUpdateCheck = 0, reloadPending = false;
+
+function showVersion() {
+  const el = document.getElementById('appVersion');
+  if (el) el.textContent = appVersion || '確認中…';
+}
+function askVersion() {
+  navigator.serviceWorker.controller?.postMessage('version');
+}
+function reloadWhenSafe() {
+  reloadPending = true;
+  // 入力中や種目選択を開いている間は読み込み直さない
+  const busy = document.activeElement?.matches('input, select, textarea') || !document.getElementById('pickerSheet').hidden;
+  if (!busy) location.reload();
+}
+async function checkForUpdate(manual = false) {
+  if (!swReg) return;
+  lastUpdateCheck = Date.now();
+  const el = document.getElementById('appVersion');
+  if (manual && el) el.textContent = '確認中…';
+  try { await swReg.update(); } catch { /* オフライン時など */ }
+  if (manual) {
+    // 新しい版があれば controllerchange で読み込み直す。なければ現在の版を表示
+    setTimeout(() => { if (!reloadPending && el) el.textContent = `${appVersion || ''}（最新です）`; }, 1500);
+  }
+}
+async function setupUpdates() {
+  try { swReg = await navigator.serviceWorker.register('sw.js'); }
+  catch (err) { console.warn('Service Worker 登録失敗', err); return; }
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.version) { appVersion = e.data.version; showVersion(); }
+  });
+  // 初回インストールでは読み込み直さない。更新で入れ替わったときだけ
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) reloadWhenSafe(); });
+  navigator.serviceWorker.ready.then(askVersion);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - lastUpdateCheck > 60 * 1000) checkForUpdate();
+  });
+  // 入力中で読み込み直しを待っていた場合は、入力を終えたときに行う
+  document.addEventListener('focusout', () => setTimeout(() => { if (reloadPending) reloadWhenSafe(); }, 300));
+  checkForUpdate();
+}
+
 // ---------- 起動 ----------
 RestTimer.init({
   sound: () => db.settings.restSound !== false,
@@ -1521,6 +1572,6 @@ $('#dateInput').addEventListener('change', e => { if (e.target.value) setDate(e.
       <p class="small">index.html をファイルとして直接開くとブラウザの制限で読み込めません。README の手順でローカルサーバーから開いてください。</p></div>`;
   }
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service Worker 登録失敗', err));
+    setupUpdates();
   }
 })();

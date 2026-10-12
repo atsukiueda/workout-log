@@ -1,5 +1,8 @@
 // オフライン対応: 取得できたらキャッシュを更新し、オフライン時はキャッシュを返す
-const CACHE = 'workout-log-v17';
+//   GitHub Pages はファイルに「10分間はブラウザのキャッシュを使ってよい」（max-age=600）を付けるため、
+//   アプリのファイルは毎回サーバーに更新の有無を確かめてから使う（変わっていなければ 304 で軽い）。
+const VERSION = 'v18';
+const CACHE = `workout-log-${VERSION}`;
 const ASSETS = [
   './',
   'index.html',
@@ -16,7 +19,10 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(a => encodeURI(a)))).then(() => self.skipWaiting()));
+  // 古いコピーを取り込まないよう、ブラウザのキャッシュを通さずに取得する
+  e.waitUntil(caches.open(CACHE)
+    .then(c => c.addAll(ASSETS.map(a => new Request(encodeURI(a), { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -25,12 +31,18 @@ self.addEventListener('activate', e => {
     .then(() => self.clients.claim()));
 });
 
+self.addEventListener('message', e => {
+  if (e.data === 'version') e.source?.postMessage({ version: VERSION });
+});
+
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   // 同一オリジンと、ライブラリの CDN だけをキャッシュする（Supabase の API 通信は対象外）
   if (e.request.method !== 'GET' || (url.origin !== location.origin && url.hostname !== 'cdn.jsdelivr.net')) return;
+  // アプリのファイルは毎回更新を確認。CDN のライブラリは版が固定なので通常どおり
+  const live = url.origin === location.origin ? fetch(url.href, { cache: 'no-cache' }) : fetch(e.request);
   e.respondWith(
-    fetch(e.request)
+    live
       .then(res => {
         if (res.ok) {
           const copy = res.clone();
