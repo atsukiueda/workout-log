@@ -269,6 +269,25 @@ function findEntry(el) {
   return { card, entry, ex: entry && exById.get(entry.exId) };
 }
 
+// 重量・回数の欄をタップしたら中身を全選択し、そのまま打てば置き換わるようにする
+//   iPhone はフォーカス直後にカーソル位置を決め直すため、少し遅らせてもう一度選択する
+function selectAllSoon(input) {
+  const sel = () => { if (document.activeElement === input) input.setSelectionRange(0, input.value.length); };
+  sel();
+  requestAnimationFrame(sel);
+  setTimeout(sel, 60);
+}
+let focusedAt = 0;
+main.addEventListener('focusin', e => {
+  if (!e.target.matches('input[data-f]')) return;
+  focusedAt = Date.now();
+  selectAllSoon(e.target);
+});
+// フォーカス直後のタップ（click）でカーソルが置かれて選択が外れるのを防ぐ。2回目以降のタップは通常どおり
+main.addEventListener('click', e => {
+  if (e.target.matches('input[data-f]') && Date.now() - focusedAt < 500) selectAllSoon(e.target);
+});
+
 main.addEventListener('input', e => {
   const t = e.target;
   if (!t.dataset.f) return;

@@ -1,5 +1,5 @@
 // オフライン対応: 取得できたらキャッシュを更新し、オフライン時はキャッシュを返す
-const CACHE = 'workout-log-v13';
+const CACHE = 'workout-log-v14';
 const ASSETS = [
   './',
   'index.html',
