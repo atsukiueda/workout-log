@@ -419,3 +419,20 @@ body.rest-on { padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
 .next-hint.up b { color: var(--good); }
 .next-hint.down b { color: var(--warn); }
 .next-why { font-size: .75rem; color: var(--text-2); margin-top: 2px; }
+
+/* 種目ごとの成長グラフ */
+.trend-switch { margin-bottom: 12px; }
+.trend-switch button { padding: 6px 18px; font-size: .88rem; }
+.prog-select { margin-bottom: 10px; }
+.prog-select select { max-width: 72%; }
+.prog-metrics { margin-bottom: 12px; }
+.prog-chart { display: block; width: 100%; height: auto; margin-top: 6px; overflow: visible; }
+.prog-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; }
+.prog-ylabel, .prog-xlabel { fill: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.prog-line { fill: none; stroke: var(--bar); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.prog-dot { fill: var(--bar); stroke: var(--surface); stroke-width: 2; }
+.prog-dot.best { fill: var(--good); }
+.prog-dot.on { stroke: var(--text); stroke-width: 2.5; }
+.prog-hit { fill: transparent; cursor: pointer; }
+.prog-best { fill: var(--good); font-size: 11px; font-weight: 600; }
+.ex-eval-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

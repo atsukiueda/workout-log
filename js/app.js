@@ -123,7 +123,7 @@ function previousEntries(exId, mode, beforeKey) {
 }
 
 // ---------- UI状態 ----------
-const ui = { view: 'record', date: todayKey(), tab: null, type: 'すべて', query: '', openPart: null, trend: { part: 'all', days: 14, metric: 'volume', tip: null } };
+const ui = { view: 'record', date: todayKey(), tab: null, type: 'すべて', query: '', openPart: null, trend: { view: 'parts', part: 'all', days: 14, metric: 'volume', tip: null }, prog: { key: null, metric: null, range: 180, tip: null } };
 const main = $('#main');
 
 function setView(v) {
@@ -376,6 +376,10 @@ main.addEventListener('input', e => {
 
 main.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset.act === 'prog-ex') {
+    setProg({ key: t.value, metric: null, tip: null });
+    return;
+  }
   if (t.dataset.f === 'r') {
     // 今日の記録で回数を入れ終えたら、レストタイマーを自動で開始
     const { ex } = findEntry(t);
@@ -467,6 +471,12 @@ main.addEventListener('click', e => {
     case 'trend-part': setTrend({ part: b.dataset.part, tip: null }); break;
     case 'trend-days': setTrend({ days: Number(b.dataset.days), tip: null }); break;
     case 'trend-metric': setTrend({ metric: b.dataset.metric }); break;
+    case 'trend-view': ui.trend.view = b.dataset.view; render(); window.scrollTo(0, 0); break;
+    case 'prog-range': setProg({ range: Number(b.dataset.days), tip: null }); break;
+    case 'prog-metric': setProg({ metric: b.dataset.metric }); break;
+    case 'prog-point': setProg({ tip: ui.prog.tip === b.dataset.date ? null : b.dataset.date }); break;
+    case 'prog-tip-close': setProg({ tip: null }); break;
+    case 'open-progress': ui.trend.view = 'exercise'; ui.prog = { ...ui.prog, key: b.dataset.key, metric: null, tip: null }; setView('trend'); break;
     case 'trend-tip-close': setTrend({ tip: null }); break;
     case 'heat-week': ui.date = addDays(b.dataset.date, 6) > todayKey() ? todayKey() : addDays(b.dataset.date, 6); setView('eval'); break;
     case 'trend-bar': {
@@ -696,7 +706,7 @@ function renderEval() {
         <h3>種目ごとの評価</h3>
         ${evals.map(({ ex, entry, st, notes }) => `
           <div class="ex-eval">
-            <div class="ex-eval-head"><strong>${esc(ex.name)}</strong>${CONFIG.modes[ex.id] ? ` <span class="muted">（${esc(CONFIG.modes[ex.id][entry.mode ?? 0].label)}）</span>` : ''}</div>
+            <div class="ex-eval-head"><strong>${esc(ex.name)}</strong>${CONFIG.modes[ex.id] ? ` <span class="muted">（${esc(CONFIG.modes[ex.id][entry.mode ?? 0].label)}）</span>` : ''}<button class="text-btn small" data-act="open-progress" data-key="${progKey(ex.id, entry.mode)}">📈 成長</button></div>
             <div class="ex-eval-stats">
               <span>${st.sets}セット</span>
               ${ex.timed ? '' : `<span>ボリューム ${fmtInt(st.volume)}kg</span>`}
@@ -929,6 +939,7 @@ function trendTip(data) {
 }
 
 function renderTrend() {
+  if (ui.trend.view === 'exercise') { renderExerciseTrend(); return; }
   const { part, days, metric } = ui.trend;
   const data = trendData();
   const M = METRICS[metric];
@@ -972,6 +983,7 @@ function renderTrend() {
   const rows = data.filter(d => shownParts.some(p => d.parts[p][metric] > 0)).reverse();
   main.innerHTML = `<section>
     <div class="section-head"><h2>推移</h2><span class="muted">${fmtShort(ui.date)} まで</span></div>
+    ${trendSwitch()}
     ${controls}
     ${body}
     ${weekHeatmap()}
@@ -1019,6 +1031,165 @@ function weekHeatmap(weeks = 8) {
     </div>
     <p class="muted small">今週は${fmtShort(ui.date)}までの途中集計です。</p>
   </div>`;
+}
+
+// ---------- 推移: 種目ごとの成長グラフ ----------
+const trendSwitch = () => `<div class="seg trend-switch">
+  <button class="${ui.trend.view === 'parts' ? 'on' : ''}" data-act="trend-view" data-view="parts">部位別</button>
+  <button class="${ui.trend.view === 'exercise' ? 'on' : ''}" data-act="trend-view" data-view="exercise">種目別</button>
+</div>`;
+
+// 種目の識別子（複数動作マシンは動作ごとに分ける）
+const progKey = (exId, mode) => `${exId}|${mode ?? ''}`;
+const parseProgKey = key => { const [exId, m] = key.split('|'); return { exId, mode: m === '' ? null : Number(m) }; };
+const progLabel = (ex, mode) => ex.name + (CONFIG.modes[ex.id] ? `（${CONFIG.modes[ex.id][mode ?? 0].label}）` : '');
+
+// 記録のある種目（最近行った順）
+function recordedExercises() {
+  const map = new Map();
+  for (const date of sortedDates()) {
+    for (const e of db.sessions[date].entries) {
+      const ex = exById.get(e.exId);
+      if (!ex || !e.sets.some(Calc.isDone)) continue;
+      const key = progKey(e.exId, CONFIG.modes[e.exId] ? (e.mode ?? 0) : null);
+      const cur = map.get(key) || { key, ex, mode: e.mode, count: 0, last: date };
+      cur.count++; cur.last = date;
+      map.set(key, cur);
+    }
+  }
+  return [...map.values()].sort((a, b) => (a.last < b.last ? 1 : a.last > b.last ? -1 : b.count - a.count));
+}
+
+// 1日1点の履歴。同じ日に同じ種目が複数あればセットをまとめる
+function exerciseHistory(key) {
+  const { exId, mode } = parseProgKey(key);
+  const ex = exById.get(exId);
+  const bw = bodyWeight();
+  const out = [];
+  for (const date of sortedDates()) {
+    const sets = db.sessions[date].entries
+      .filter(e => e.exId === exId && (CONFIG.modes[exId] ? (e.mode ?? 0) === (mode ?? 0) : true))
+      .flatMap(e => e.sets).filter(Calc.isDone);
+    if (!sets.length) continue;
+    const st = Calc.entryStats(ex, { sets }, bw);
+    out.push({
+      date, sets,
+      e1rm: st.bestE1rm,
+      weight: Math.max(...sets.map(s => Calc.oneRmLoad(ex, s, bw))),
+      volume: st.volume,
+      reps: Math.max(...sets.map(s => Number(s.r))),
+    });
+  }
+  return { ex, mode, points: out };
+}
+
+const PROG_METRICS = {
+  e1rm: { label: '推定1RM', unit: 'kg', fmt: v => fmtNum(v) },
+  weight: { label: '最高重量', unit: 'kg', fmt: v => fmtNum(v) },
+  volume: { label: 'ボリューム', unit: 'kg', fmt: v => fmtInt(v) },
+  reps: { label: '最多回数', unit: '回', fmt: v => fmtInt(v) },
+};
+const PROG_RANGES = [[90, '3か月'], [180, '半年'], [365, '1年'], [0, '全期間']];
+
+function progressChart(points, metric, unit) {
+  const W = 340, H = 190, L = 44, R = 14, T = 16, B = 26;
+  const t = d => fromKey(d).getTime();
+  const t0 = t(points[0].date), t1 = t(points[points.length - 1].date);
+  const vals = points.map(p => p[metric]);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi === lo) { lo -= Math.max(1, lo * 0.05); hi += Math.max(1, hi * 0.05); }
+  const step = niceMax((hi - lo) / 3);
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const x = d => (t1 === t0 ? (L + W - R) / 2 : L + ((t(d) - t0) / (t1 - t0)) * (W - L - R));
+  const y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const ticks = []; for (let v = lo; v <= hi + 1e-9; v += step) ticks.push(v);
+  const best = vals.indexOf(Math.max(...vals));
+  const xLabels = points.length === 1 ? [0] : [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+  const unitFmt = v => (metric === 'volume' ? fmtAxis(v, 'volume') : fmtNum(v));
+  return `<svg class="prog-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(PROG_METRICS[metric].label)}の推移">
+    ${ticks.map(v => `<line class="prog-grid" x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text class="prog-ylabel" x="${L - 6}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${unitFmt(v)}</text>`).join('')}
+    ${xLabels.map(i => `<text class="prog-xlabel" x="${x(points[i].date).toFixed(1)}" y="${H - 6}" text-anchor="${points.length === 1 ? 'middle' : i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'}">${fmtShort(points[i].date)}</text>`).join('')}
+    ${points.length > 1 ? `<polyline class="prog-line" points="${points.map(p => `${x(p.date).toFixed(1)},${y(p[metric]).toFixed(1)}`).join(' ')}"/>` : ''}
+    ${points.map((p, i) => `<g>
+      <circle class="prog-dot ${i === best ? 'best' : ''} ${ui.prog.tip === p.date ? 'on' : ''}" cx="${x(p.date).toFixed(1)}" cy="${y(p[metric]).toFixed(1)}" r="${i === best ? 5 : 4}"/>
+      <circle class="prog-hit" data-act="prog-point" data-date="${p.date}" cx="${x(p.date).toFixed(1)}" cy="${y(p[metric]).toFixed(1)}" r="13"><title>${fmtShort(p.date)} ${PROG_METRICS[metric].fmt(p[metric])}${unit}</title></circle>
+    </g>`).join('')}
+    <text class="prog-best" x="${Math.min(Math.max(x(points[best].date), L + 20), W - R - 20).toFixed(1)}" y="${Math.max(y(vals[best]) - 10, 11).toFixed(1)}" text-anchor="middle">最高 ${PROG_METRICS[metric].fmt(vals[best])}</text>
+  </svg>`;
+}
+
+function renderExerciseTrend() {
+  const list = recordedExercises();
+  const head = `<div class="section-head"><h2>推移</h2><span class="muted">${fmtShort(ui.date)} まで</span></div>${trendSwitch()}`;
+  if (!list.length) {
+    main.innerHTML = `<section>${head}<p class="empty">まだ記録がありません。</p></section>`;
+    return;
+  }
+  if (!ui.prog.key || !list.some(r => r.key === ui.prog.key)) ui.prog.key = list[0].key;
+  const { ex, points: all } = exerciseHistory(ui.prog.key);
+  const from = ui.prog.range ? addDays(ui.date, -ui.prog.range + 1) : '0000';
+  const points = all.filter(p => p.date >= from && p.date <= ui.date);
+  const avail = Object.keys(PROG_METRICS).filter(m =>
+    m === 'reps' || (m === 'volume' ? !ex.timed : all.some(p => p[m] > 0)));
+  if (!avail.includes(ui.prog.metric)) ui.prog.metric = avail[0];
+  const metric = ui.prog.metric;
+  const M = PROG_METRICS[metric];
+  const unit = metric === 'reps' && ex.timed ? '秒' : M.unit;
+  const label = metric === 'reps' && ex.timed ? '最長秒数' : M.label;
+  const shown = points.filter(p => p[metric] != null && (metric === 'reps' || p[metric] > 0));
+
+  let body;
+  if (!shown.length) {
+    body = `<p class="empty">この期間の記録はありません。</p>`;
+  } else {
+    const first = shown[0][metric], last = shown[shown.length - 1][metric];
+    const bestP = shown.reduce((a, p) => (p[metric] > a[metric] ? p : a));
+    const diff = last - first, pct = first ? (diff / first) * 100 : 0;
+    const tip = shown.find(p => p.date === ui.prog.tip);
+    body = `<div class="stat-row">
+        <div class="stat"><span class="stat-value">${M.fmt(last)}<small>${unit}</small></span><span class="stat-label">最新（${fmtShort(shown[shown.length - 1].date)}）</span></div>
+        <div class="stat"><span class="stat-value">${M.fmt(bestP[metric])}<small>${unit}</small></span><span class="stat-label">最高（${fmtShort(bestP.date)}）</span></div>
+        <div class="stat"><span class="stat-value ${diff > 0 ? 'rate-ok' : diff < 0 ? 'rate-high' : ''}">${shown.length > 1 ? `${diff >= 0 ? '+' : ''}${M.fmt(diff)}` : '—'}<small>${shown.length > 1 ? unit : ''}</small></span><span class="stat-label">${shown.length > 1 ? `期間の変化 ${pct >= 0 ? '+' : ''}${fmtNum(pct, 0)}%` : '期間の変化'}</span></div>
+      </div>
+      <div class="card">
+        <h3>${esc(label)}の推移</h3>
+        <p class="muted small">${shown.length}回分の記録 ・ 点をタップで詳細</p>
+        ${progressChart(shown, metric, unit)}
+        ${tip ? `<div class="ttip">
+          <div class="ttip-head"><strong>${fmtDate(tip.date)}</strong><button class="icon-btn small" data-act="prog-tip-close" aria-label="閉じる">✕</button></div>
+          <div>${esc(label)} <strong>${M.fmt(tip[metric])}${unit}</strong></div>
+          <div class="muted small">${tip.sets.map(s => esc(setText(ex, s))).join(' / ')}</div>
+          <button class="text-btn" data-act="open-date" data-date="${tip.date}">この日の記録を開く ›</button>
+        </div>` : ''}
+      </div>
+      <details class="card">
+        <summary>数値で見る</summary>
+        <div class="table-scroll"><table class="num-table">
+          <thead><tr><th>日付</th>${avail.map(m => `<th>${m === 'reps' && ex.timed ? '最長秒数' : PROG_METRICS[m].label}</th>`).join('')}</tr></thead>
+          <tbody>${[...points].reverse().map(p => `<tr><td>${fmtShort(p.date)}</td>${avail.map(m => `<td>${p[m] != null && (m === 'reps' || p[m] > 0) ? PROG_METRICS[m].fmt(p[m]) : '—'}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table></div>
+      </details>`;
+  }
+
+  main.innerHTML = `<section>
+    ${head}
+    <label class="field prog-select">種目<select data-act="prog-ex">
+      ${list.map(r => `<option value="${r.key}" ${r.key === ui.prog.key ? 'selected' : ''}>${esc(progLabel(r.ex, r.mode))}（${r.count}回）</option>`).join('')}
+    </select></label>
+    <div class="trend-opts">
+      <div class="seg">${PROG_RANGES.map(([d, l]) => `<button class="${d === ui.prog.range ? 'on' : ''}" data-act="prog-range" data-days="${d}">${l}</button>`).join('')}</div>
+    </div>
+    <div class="chips wrap prog-metrics">${avail.map(m => `<button class="chip ${m === metric ? 'on' : ''}" data-act="prog-metric" data-metric="${m}">${m === 'reps' && ex.timed ? '最長秒数' : PROG_METRICS[m].label}</button>`).join('')}</div>
+    ${body}
+    <p class="muted small">推定1RMは Epley 式（15回以下のセットのみ）。重りを持つ種目は持った重量、自重種目は体重分を含めた値です。</p>
+  </section>`;
+}
+
+function setProg(patch) {
+  Object.assign(ui.prog, patch);
+  const y = window.scrollY;
+  render();
+  window.scrollTo(0, y);
 }
 
 function setTrend(patch) {

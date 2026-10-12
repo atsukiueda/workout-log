@@ -148,5 +148,5 @@ const Calc = (() => {
       });
   }
 
-  return { bodyFactor, goalGroups, parseToken, stripFactor, weeklyTarget, splitNames, expand, targets, loadKind, effectiveLoad, e1rm, entryStats, muscleLoad, rate, repZone, isDone };
+  return { oneRmLoad, bodyFactor, goalGroups, parseToken, stripFactor, weeklyTarget, splitNames, expand, targets, loadKind, effectiveLoad, e1rm, entryStats, muscleLoad, rate, repZone, isDone };
 })();
