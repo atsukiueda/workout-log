@@ -1,7 +1,7 @@
 // オフライン対応: 取得できたらキャッシュを更新し、オフライン時はキャッシュを返す
 //   GitHub Pages はファイルに「10分間はブラウザのキャッシュを使ってよい」（max-age=600）を付けるため、
 //   アプリのファイルは毎回サーバーに更新の有無を確かめてから使う（変わっていなければ 304 で軽い）。
-const VERSION = 'v19';
+const VERSION = 'v20';
 const CACHE = `workout-log-${VERSION}`;
 const ASSETS = [
   './',
