@@ -140,6 +140,49 @@ function render() {
   ({ record: renderRecord, eval: renderEval, trend: renderTrend, history: renderHistory, settings: renderSettings })[ui.view]();
 }
 
+// ---------- 複数動作マシン ----------
+// 1台で複数の動作ができるマシン（ペックフライ／リアデルトなど）は、動作ごとに別の種目として扱う。
+// 記録は「マシンの種目ID＋動作番号（mode）」で保存する。汎用マシン（主対象筋が「種目による」）は記録時に動作を選ぶ
+const isSplitMachine = ex => Boolean(CONFIG.modes[ex.id]) && !ex.primary.includes('種目による');
+const modeDef = (ex, mode) => CONFIG.modes[ex.id]?.[mode ?? 0];
+function displayName(ex, mode) {
+  const m = modeDef(ex, mode);
+  if (!m) return ex.name;
+  return isSplitMachine(ex) ? `${m.label}（${ex.name}）` : `${ex.name}（${m.label}）`;
+}
+// 動作に応じた主対象筋と部位タブ
+const primaryOf = (ex, mode) => {
+  const m = modeDef(ex, mode);
+  return m ? Calc.splitNames(m.primary).map(Calc.stripFactor) : ex.primary;
+};
+function tabsOf(ex, mode) {
+  if (!isSplitMachine(ex)) return ex.tabs;
+  const parts = primaryOf(ex, mode).flatMap(n => Calc.expand(n).map(([m]) => CONFIG.muscles[m]));
+  const tabs = [...new Set(parts.map(p => CONFIG.partToTab[p]).filter(Boolean))];
+  return tabs.length ? tabs : ex.tabs;
+}
+// 種目選択・お気に入り・実施回数で使うキー（動作ごとに分けるマシンは「ID|動作」）
+const itemKey = (exId, mode) => {
+  const ex = exById.get(exId);
+  return ex && isSplitMachine(ex) ? `${exId}|${mode ?? 0}` : exId;
+};
+
+// 種目選択の一覧に並べる項目
+let pickerItems = [];
+function buildPickerItems() {
+  pickerItems = master.flatMap(ex => (isSplitMachine(ex)
+    ? CONFIG.modes[ex.id].map((m, i) => ({
+      key: `${ex.id}|${i}`, ex, mode: i, name: displayName(ex, i), tabs: tabsOf(ex, i),
+      primary: primaryOf(ex, i), secondary: Calc.splitNames(m.secondary),
+      searchKey: searchKey(m.label) + ex.searchKey,
+    }))
+    : [{ key: ex.id, ex, mode: null, name: ex.name, tabs: ex.tabs, primary: ex.primary, secondary: ex.secondaryRaw, searchKey: ex.searchKey }]));
+  // 以前のお気に入り（マシン単位）は最初の動作に引き継ぐ
+  const favs = favorites();
+  const migrated = favs.map(k => (exById.get(k) && isSplitMachine(exById.get(k)) ? `${k}|0` : k));
+  if (migrated.some((k, i) => k !== favs[i])) { db.settings.favorites = migrated; saveDb(); }
+}
+
 // ---------- お気に入り（設定に保存するのでクラウド同期される） ----------
 const FAV = 'fav';
 const favorites = () => (Array.isArray(db.settings.favorites) ? db.settings.favorites : []);
@@ -217,53 +260,55 @@ function renderEntry(entry) {
   return `<article class="card entry" data-uid="${entry.uid}">
     <div class="entry-head">
       <div>
-        <h3>${esc(ex.name)}</h3>
+        <h3>${esc(displayName(ex, entry.mode))}</h3>
         <div class="meta">${typeBadge(ex.type)} 主対象: ${esc(prim.join('・') || '—')} ・ 目安 ${esc(ex.setsGuide)}セット×${esc(ex.repsGuide)}${ex.timed ? '' : '回'}</div>
         ${bodyLoadNote(ex) ? `<div class="meta body-note">${esc(bodyLoadNote(ex))}（体重 ${fmtNum(bodyWeight())}kg）</div>` : ''}
       </div>
-      <div class="entry-actions">${favButton(ex.id)}<button class="text-btn danger" data-act="del-entry">削除</button></div>
+      <div class="entry-actions">${favButton(itemKey(ex.id, entry.mode))}<button class="text-btn danger" data-act="del-entry">削除</button></div>
     </div>
-    ${modes ? `<label class="mode-select">動作 <select data-act="mode">${modes.map((m, i) => `<option value="${i}" ${i === (entry.mode ?? 0) ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>` : ''}
+    ${modes && !isSplitMachine(ex) ? `<label class="mode-select">動作 <select data-act="mode">${modes.map((m, i) => `<option value="${i}" ${i === (entry.mode ?? 0) ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>` : ''}
     ${prev ? `<p class="prev">前回 ${fmtShort(prev.date)}: ${prevSets.map(s => esc(setText(ex, s))).join(' / ')}</p>` : ''}
     ${suggestionHtml(ex, entry)}
     <div class="sets">${rows}</div>
     <div class="entry-foot">
       <button class="text-btn" data-act="add-set">＋ セット追加</button>
-      ${RestTimer.enabled() ? `<button class="text-btn rest-btn" data-act="rest-start" title="レストタイマーを開始">⏱ ${RestTimer.fmt(restSeconds(ex))}</button>` : ''}
+      ${RestTimer.enabled() ? `<button class="text-btn rest-btn" data-act="rest-start" title="レストタイマーを開始">⏱ ${RestTimer.fmt(restSeconds(ex, entry.mode))}</button>` : ''}
       <span class="entry-sum">${esc(entrySummary(ex, entry))}</span>
     </div>
   </article>`;
 }
 
 // 単関節種目か（レスト時間の初期値に使う）
-function isIsolation(ex) {
+function isIsolation(ex, mode = null) {
   if (CONFIG.isolationMoves.includes(ex.move)) return true;
-  if (ex.move === '下半身') return !(ex.primary.includes('大腿四頭筋') && ex.primary.includes('大臀筋'));
+  const primary = primaryOf(ex, mode);
+  if (ex.move === '下半身') return !(primary.includes('大腿四頭筋') && primary.includes('大臀筋'));
   return false;
 }
 // その種目のレスト時間（秒）。設定で固定値にしていればそれを使う
-function restSeconds(ex) {
+function restSeconds(ex, exMode = null) {
   const mode = db.settings.restMode;
   if (mode && mode !== 'auto') return Number(mode);
   const r = CONFIG.rest[db.settings.goal] || CONFIG.rest[CONFIG.defaultProfile.goal];
-  return isIsolation(ex) ? r.isolation : r.compound;
+  return isIsolation(ex, exMode) ? r.isolation : r.compound;
 }
 
 // ---------- 次回の重量の提案（ダブルプログレッション） ----------
 // 回数の範囲: 種目の目安回数と目的の推奨回数が重なる部分。単関節種目は種目の目安を優先
-function repRange(ex) {
+function repRange(ex, mode = null) {
   if (ex.timed || ex.repMin == null) return null;
   const [gMin, gMax] = goalDef().reps;
   const mMin = ex.repMin, mMax = ex.repMax ?? ex.repMin;
   // 単関節種目と、重りを足さない自重種目（腕立て伏せなど）は種目の目安をそのまま使う
-  if (isIsolation(ex) || (Calc.loadKind(ex) === 'bodyweight' && !progressionStep(ex))) return [mMin, mMax];
+  if (isIsolation(ex, mode) || (Calc.loadKind(ex) === 'bodyweight' && !progressionStep(ex, mode))) return [mMin, mMax];
   const lo = Math.max(mMin, gMin), hi = Math.min(mMax, gMax);
   return hi - lo >= 2 ? [lo, hi] : [gMin, gMax];
 }
-function progressionStep(ex) {
+function progressionStep(ex, mode = null) {
   const p = CONFIG.progression;
   const kind = Calc.loadKind(ex);
-  const lower = ex.tabs.includes('脚') || ex.tabs.includes('臀部');
+  const tabs = tabsOf(ex, mode);
+  const lower = tabs.includes('脚') || tabs.includes('臀部');
   if (kind === 'assist') return p.assist;
   if (kind === 'bodyweight') return p.addableBodyweight.includes(ex.id) ? p.bodyweightAdd : 0;
   if (ex.name.includes('ダンベル')) return p.dumbbell;
@@ -278,7 +323,7 @@ const weightText = (ex, w) => {
 };
 
 function nextSuggestion(ex, entry) {
-  const range = repRange(ex);
+  const range = repRange(ex, entry.mode);
   if (!range) return null;
   const [lo, hi] = range;
   const prev = previousEntries(ex.id, entry.mode, ui.date).pop();
@@ -288,7 +333,7 @@ function nextSuggestion(ex, entry) {
   // 主セット = 最も負荷の高いセット（アシスト種目はアシストが最も少ないセット）
   const top = assist ? Math.min(...sets.map(s => s.w)) : Math.max(...sets.map(s => s.w));
   const minReps = Math.min(...sets.filter(s => s.w === top).map(s => s.r));
-  const step = progressionStep(ex);
+  const step = progressionStep(ex, entry.mode);
   const prevText = `前回 ${weightText(ex, top)}・最少${minReps}回`;
   const roundStep = w => (step ? Math.round(w / step) * step : w);
   if (minReps >= hi) {
@@ -382,8 +427,10 @@ main.addEventListener('change', e => {
   }
   if (t.dataset.f === 'r') {
     // 今日の記録で回数を入れ終えたら、レストタイマーを自動で開始
-    const { ex } = findEntry(t);
-    if (ex && Number(t.value) > 0 && RestTimer.enabled() && db.settings.restAuto !== false && ui.date === todayKey()) RestTimer.start(restSeconds(ex), ex.name);
+    const { ex, entry } = findEntry(t);
+    if (ex && Number(t.value) > 0 && RestTimer.enabled() && db.settings.restAuto !== false && ui.date === todayKey()) {
+      RestTimer.start(restSeconds(ex, entry.mode), displayName(ex, entry.mode));
+    }
   } else if (t.dataset.act === 'mode') {
     const { entry } = findEntry(t);
     entry.mode = Number(t.value);
@@ -447,7 +494,7 @@ main.addEventListener('click', e => {
     }
     case 'check-update': checkForUpdate(true); break;
     case 'rest-test': RestTimer.testSound(); break;
-    case 'rest-start': { const ex = exById.get(entry.exId); RestTimer.start(restSeconds(ex), ex.name); break; }
+    case 'rest-start': { const ex = exById.get(entry.exId); RestTimer.start(restSeconds(ex, entry.mode), displayName(ex, entry.mode)); break; }
     case 'add-set': {
       const last = entry.sets[entry.sets.length - 1];
       entry.sets.push(last ? { ...last } : { w: '', r: '' });
@@ -519,23 +566,23 @@ function closePicker() {
 function renderPicker() {
   const favSet = new Set(favorites());
   $('#partTabs').innerHTML = [FAV, ...CONFIG.tabs].map(t => {
-    const n = t === FAV ? master.filter(e => favSet.has(e.id)).length : master.filter(e => e.tabs.includes(t)).length;
+    const n = t === FAV ? pickerItems.filter(it => favSet.has(it.key)).length : pickerItems.filter(it => it.tabs.includes(t)).length;
     return `<button role="tab" aria-selected="${t === ui.tab && !ui.query}" data-tab="${t}" class="${t === FAV ? 'fav-tab' : ''}">${t === FAV ? '★ お気に入り' : t}<small>${n}</small></button>`;
   }).join('');
   $('#typeChips').innerHTML = TYPES.map(t => `<button class="chip ${t === ui.type ? 'on' : ''}" data-type="${t}">${t}</button>`).join('');
   const q = searchKey(ui.query);
-  const done = new Set(entriesOf(ui.date).map(e => e.exId));
+  const done = new Set(entriesOf(ui.date).map(e => itemKey(e.exId, e.mode)));
   const usage = {};
-  for (const k of sortedDates()) for (const e of db.sessions[k].entries) usage[e.exId] = (usage[e.exId] || 0) + 1;
-  const list = master
-    .filter(e => q ? e.searchKey.includes(q) : ui.tab === FAV ? favSet.has(e.id) : e.tabs.includes(ui.tab))
-    .filter(e => ui.type === 'すべて' || e.type === ui.type)
-    .sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
-  $('#pickerList').innerHTML = list.length ? list.map(e => `
-    <li class="pick-row"><button class="pick-main" data-ex="${e.id}">
-      <span class="pick-name">${esc(e.name)}${done.has(e.id) ? ' <span class="badge done">追加済</span>' : ''}</span>
-      <span class="pick-meta">${typeBadge(e.type)} ${esc(e.primary.join('・'))}${e.secondary.length ? ` <span class="muted">／${esc(e.secondaryRaw.map(fmtToken).join('・'))}</span>` : ''}${usage[e.id] ? ` <span class="muted">・${usage[e.id]}回実施</span>` : ''}</span>
-    </button>${favButton(e.id)}</li>`).join('')
+  for (const k of sortedDates()) for (const e of db.sessions[k].entries) { const key = itemKey(e.exId, e.mode); usage[key] = (usage[key] || 0) + 1; }
+  const list = pickerItems
+    .filter(it => q ? it.searchKey.includes(q) : ui.tab === FAV ? favSet.has(it.key) : it.tabs.includes(ui.tab))
+    .filter(it => ui.type === 'すべて' || it.ex.type === ui.type)
+    .sort((a, b) => (usage[b.key] || 0) - (usage[a.key] || 0));
+  $('#pickerList').innerHTML = list.length ? list.map(it => `
+    <li class="pick-row"><button class="pick-main" data-ex="${it.ex.id}" data-mode="${it.mode ?? ''}">
+      <span class="pick-name">${esc(it.name)}${done.has(it.key) ? ' <span class="badge done">追加済</span>' : ''}</span>
+      <span class="pick-meta">${typeBadge(it.ex.type)} ${esc(it.primary.join('・'))}${it.secondary.length ? ` <span class="muted">／${esc(it.secondary.map(fmtToken).join('・'))}</span>` : ''}${usage[it.key] ? ` <span class="muted">・${usage[it.key]}回実施</span>` : ''}</span>
+    </button>${favButton(it.key)}</li>`).join('')
     : `<li class="empty">${ui.tab === FAV && !q ? 'お気に入りはまだありません。各部位のタブで種目の ☆ をタップすると登録できます。' : '該当する種目がありません'}</li>`;
 }
 
@@ -562,8 +609,13 @@ $('#pickerList').addEventListener('click', e => {
   const b = e.target.closest('[data-ex]');
   if (!b) return;
   const exId = b.dataset.ex;
-  const prev = previousEntries(exId, 0, ui.date).pop();
-  const entry = { uid: uid(), exId, mode: CONFIG.modes[exId] ? (prev?.entry.mode ?? 0) : null, sets: [{ w: '', r: '' }] };
+  let mode = b.dataset.mode === '' ? null : Number(b.dataset.mode);
+  // 汎用マシン（動作を選ぶ種目）は前回の動作を引き継ぐ
+  if (mode == null && CONFIG.modes[exId]) {
+    const last = sortedDates().reverse().flatMap(k => db.sessions[k].entries).find(e => e.exId === exId);
+    mode = last?.mode ?? 0;
+  }
+  const entry = { uid: uid(), exId, mode, sets: [{ w: '', r: '' }] };
   session(ui.date).entries.push(entry);
   saveDb(); closePicker();
   if (ui.view !== 'record') setView('record'); else render();
@@ -711,7 +763,7 @@ function renderEval() {
         <h3>種目ごとの評価</h3>
         ${evals.map(({ ex, entry, st, notes }) => `
           <div class="ex-eval">
-            <div class="ex-eval-head"><strong>${esc(ex.name)}</strong>${CONFIG.modes[ex.id] ? ` <span class="muted">（${esc(CONFIG.modes[ex.id][entry.mode ?? 0].label)}）</span>` : ''}<button class="text-btn small" data-act="open-progress" data-key="${progKey(ex.id, entry.mode)}">📈 成長</button></div>
+            <div class="ex-eval-head"><strong>${esc(displayName(ex, entry.mode))}</strong><button class="text-btn small" data-act="open-progress" data-key="${progKey(ex.id, entry.mode)}">📈 成長</button></div>
             <div class="ex-eval-stats">
               <span>${st.sets}セット</span>
               ${ex.timed ? '' : `<span>ボリューム ${fmtInt(st.volume)}kg</span>`}
@@ -833,7 +885,7 @@ function nextCard(week) {
     ${need.length ? `<p class="muted small">直近7日間で目標下限（週${range.low}セット）に届いていない筋肉です。回復済みの部位から優先して表示しています。</p>
       <ul class="suggest">${need.slice(0, 3).map(({ g, remain, rec: r }) => `<li>
         <div class="suggest-head"><strong>${esc(g.label)}</strong> <span>あと約${Math.ceil(remain)}セット</span> ${statusText(r)}</div>
-        <div class="chips wrap">${suggestExercises(g.muscles[0]).map(s => `<button class="chip" data-act="suggest-add" data-ex="${s.ex.id}" data-mode="${s.mode ?? ''}">＋ ${esc(s.ex.name)}${s.mode != null ? `（${esc(CONFIG.modes[s.ex.id][s.mode].label)}）` : ''}</button>`).join('')}</div>
+        <div class="chips wrap">${suggestExercises(g.muscles[0]).map(s => `<button class="chip" data-act="suggest-add" data-ex="${s.ex.id}" data-mode="${s.mode ?? ''}">＋ ${esc(displayName(s.ex, s.mode))}</button>`).join('')}</div>
       </li>`).join('')}</ul>
       <p class="muted small">種目をタップすると今日の記録に追加します。</p>`
     : '<p class="small">🎯 直近7日間で全筋群が目標下限に達しています。</p>'}
@@ -938,7 +990,7 @@ function trendTip(data) {
   return `<div class="ttip" role="status">
     <div class="ttip-head"><strong>${fmtDate(d.date)} ・ ${tip.part}</strong><button class="icon-btn small" data-act="trend-tip-close" aria-label="閉じる">✕</button></div>
     <div>ボリューム <strong>${fmtInt(p.volume)}kg</strong> ・ 換算 <strong>${fmtNum(p.sets)}</strong>セット</div>
-    ${exs.length ? `<div class="muted small">${exs.map(({ ex }) => esc(ex.name)).join('、')}</div>` : '<div class="muted small">この部位の記録なし</div>'}
+    ${exs.length ? `<div class="muted small">${exs.map(({ ex, entry }) => esc(displayName(ex, entry.mode))).join('、')}</div>` : '<div class="muted small">この部位の記録なし</div>'}
     ${d.items.length ? `<button class="text-btn" data-act="open-date" data-date="${d.date}">この日の記録を開く ›</button>` : ''}
   </div>`;
 }
@@ -1047,7 +1099,7 @@ const trendSwitch = () => `<div class="seg trend-switch">
 // 種目の識別子（複数動作マシンは動作ごとに分ける）
 const progKey = (exId, mode) => `${exId}|${mode ?? ''}`;
 const parseProgKey = key => { const [exId, m] = key.split('|'); return { exId, mode: m === '' ? null : Number(m) }; };
-const progLabel = (ex, mode) => ex.name + (CONFIG.modes[ex.id] ? `（${CONFIG.modes[ex.id][mode ?? 0].label}）` : '');
+const progLabel = (ex, mode) => displayName(ex, mode);
 
 // 記録のある種目（最近行った順）
 function recordedExercises() {
@@ -1271,7 +1323,7 @@ function calendarCard() {
     ${sel ? `<div class="ttip cal-detail">
       <div class="ttip-head"><strong>${fmtDate(sel)}</strong><button class="icon-btn small" data-act="cal-close" aria-label="閉じる">✕</button></div>
       ${selInfo ? `<div class="history-parts">${selInfo.parts.map(p => `<span class="badge">${p} ${fmtNum(selInfo.load.parts[p].sets)}</span>`).join('')}</div>
-        <div class="small">${selInfo.items.map(({ ex }) => esc(ex.name)).join('、')}（${selInfo.sets}セット）</div>` : '<div class="muted small">記録はありません</div>'}
+        <div class="small">${selInfo.items.map(({ ex, entry }) => esc(displayName(ex, entry.mode))).join('、')}（${selInfo.sets}セット）</div>` : '<div class="muted small">記録はありません</div>'}
       <button class="text-btn" data-act="open-date" data-date="${sel}">${selInfo ? 'この日の記録を開く ›' : 'この日に記録する ›'}</button>
     </div>` : ''}
   </div>`;
@@ -1293,7 +1345,7 @@ function renderHistory() {
       return `<button class="card history-item ${k === ui.date ? 'current' : ''}" data-act="open-date" data-date="${k}">
         <div class="history-head"><strong>${fmtDate(k)}</strong><span class="muted">${daySummaryText(k)} ・ ${fmtInt(vol)}kg</span></div>
         <div class="history-parts">${top.map(p => `<span class="badge">${p} ${fmtNum(load.parts[p].sets)}</span>`).join('')}</div>
-        <div class="history-ex muted">${items.map(({ ex }) => esc(ex.name)).join('、')}</div>
+        <div class="history-ex muted">${items.map(({ ex, entry }) => esc(displayName(ex, entry.mode))).join('、')}</div>
       </button>`;
     }).join('') : '<p class="empty">この月の記録はありません。</p>'}
   </section>`;
@@ -1552,6 +1604,7 @@ $('#dateInput').addEventListener('change', e => { if (e.target.value) setDate(e.
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     master = buildMaster(await res.text());
     master.forEach(e => exById.set(e.id, e));
+    buildPickerItems();
     const unknown = new Set();
     master.forEach(e => [...e.primary, ...e.secondary].forEach(n => { if (!Calc.expand(n).length && !CONFIG.modes[e.id]) unknown.add(`${e.id}:${n}`); }));
     if (unknown.size) console.warn('集計対象に対応付けられていない筋肉名:', [...unknown]);
