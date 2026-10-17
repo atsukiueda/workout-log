@@ -23,16 +23,32 @@ const RestTimer = (() => {
 
   // ---- 音
   //   iPhone の Safari は「タップが完了した操作」（touchend / click）の中でしか音声を有効にできない。
-  //   アプリを裏に回すと音声が止まる（interrupted）ことがあるため、タップのたびに止まっていれば再開する。
-  function unlockAudio() {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    if (!audio) {
-      audio = new AC();
-      const b = audio.createBuffer(1, 1, 22050), s = audio.createBufferSource();
-      s.buffer = b; s.connect(audio.destination); s.start(0);
+  //   アプリを裏に回したり、システムのポップアップ（シェイクで取り消し・着信など）が出たりすると
+  //   音声が中断（interrupted / suspended）され、その後 resume() しても戻らないことがある。
+  //   そのため、止まっていればタップのたびに音声を作り直す。
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const audioReady = () => Boolean(audio) && audio.state === 'running';
+
+  function createAudio() {
+    if (audio) {
+      const old = audio;
+      old.onstatechange = null;
+      old.close?.().catch(() => {});
     }
-    if (audio.state !== 'running') audio.resume?.().catch(() => {});
+    audio = new AC();
+    audio.onstatechange = () => render(); // 中断されたら表示に反映
+    const b = audio.createBuffer(1, 1, 22050), s = audio.createBufferSource();
+    s.buffer = b; s.connect(audio.destination); s.start(0);
+    if (audio.state !== 'running') audio.resume?.().then(render).catch(() => {});
+  }
+  // タップ操作の中で呼ぶ
+  function unlockAudio() {
+    if (!AC) return;
+    if (!audioReady()) { createAudio(); render(); }
+  }
+  // 操作なしでの復帰の試み（ポップアップが閉じた・画面に戻ったとき）。iPhone では効かないこともある
+  function tryResume() {
+    if (audio && !audioReady()) audio.resume?.().then(render).catch(() => {});
   }
   // 消音モードでも鳴らす（Safari の Audio Session API）。鳴らす間だけ playback にして、終わったら戻す
   function setSessionForBeep(on) {
@@ -55,8 +71,8 @@ const RestTimer = (() => {
   function beep(force = false) {
     if (!audio || (!force && !opts.sound())) return;
     setSessionForBeep(true);
-    if (audio.state === 'running') playTones();
-    else audio.resume?.().then(playTones).catch(() => {});
+    if (audioReady()) playTones();
+    else audio.resume?.().then(() => { if (audioReady()) playTones(); }).catch(() => {});
   }
   // 終了の合図を repeat 回くり返す（約2秒おき）。スキップ・閉じる・次のタイマー開始で止まる
   const REPEAT_GAP = 2000;
@@ -92,6 +108,9 @@ const RestTimer = (() => {
     bar.querySelector('.rest-stop').textContent = done ? '閉じる' : 'スキップ';
     bar.querySelector('.rest-ex').textContent = st.label || '';
     bar.querySelector('.rest-progress span').style.width = `${Math.min(100, (1 - rem / st.total) * 100)}%`;
+    // 音が出せない状態なら知らせる（タップすると作り直して復帰する）
+    const mute = bar.querySelector('.rest-mute');
+    if (mute) mute.hidden = !(AC && opts.sound() && !audioReady());
   }
 
   function loop() {
@@ -128,7 +147,11 @@ const RestTimer = (() => {
   function init(o = {}) {
     opts = { ...opts, ...o };
     for (const type of ['touchend', 'click', 'keydown']) document.addEventListener(type, unlockAudio, { capture: true, passive: true });
+    // ポップアップが閉じた・アプリに戻ったときに復帰を試みる
+    window.addEventListener('focus', tryResume);
+    window.addEventListener('pageshow', tryResume);
     document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') tryResume();
       if (document.visibilityState !== 'visible' || !st) return;
       keepAwake();
       // 裏にいる間に終わっていた場合は、戻ったときに知らせる

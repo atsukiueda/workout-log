@@ -1413,7 +1413,7 @@ function renderSettings() {
       <label class="field">消音モードでも鳴らす<input type="checkbox" data-device="ignoreSilent" ${dev.ignoreSilent ? 'checked' : ''}></label>
       <p class="muted small">iPhone の消音モード中も音を鳴らします。鳴るたびに再生中の音楽が止まることがあります（この端末だけの設定）。</p>` : ''}
       <button class="secondary-btn" data-act="rest-test">🔔 音を試す</button>
-      <p class="muted small">今日の記録で回数を入力し終えると開始します（各種目の ⏱ ボタンでも開始できます）。計測中は画面が消えないようにします。画面ロック中やほかのアプリを表示している間は鳴りません。iPhone は振動に対応していません。</p>` : ''}
+      <p class="muted small">今日の記録で回数を入力し終えると開始します（各種目の ⏱ ボタンでも開始できます）。計測中は画面が消えないようにします。画面ロック中やほかのアプリを表示している間は鳴りません。iPhone は振動に対応していません。iPhone を振ったときに出る「取り消し」のポップアップなどで音が止まった場合は、タイマーのバーに 🔇 が出ます。画面をタップすると復帰します（ポップアップ自体は iPhone の 設定 → アクセシビリティ → タッチ →「シェイクで取り消し」をオフにすると出なくなります）。</p>` : ''}
     </div>
     <div class="card" id="syncCard">${syncCardHtml()}</div>
     <div class="card">
